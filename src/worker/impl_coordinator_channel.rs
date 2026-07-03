@@ -1,12 +1,14 @@
-use crate::common::deserialize_uuid;
+use crate::common::{TreeNodeExt, deserialize_uuid};
 use crate::execution_plans::SamplerExec;
+use crate::metrics::proto::df_metrics_set_to_proto;
+use crate::protobuf::datafusion_error_to_tonic_status;
 use crate::work_unit_feed::{RemoteWorkUnitFeedRegistry, set_work_unit_received_time};
 use crate::worker::LocalWorkerContext;
 use crate::worker::generated::worker::coordinator_to_worker_msg::Inner;
 use crate::worker::generated::worker::set_plan_request::WorkUnitFeedDeclaration;
 use crate::worker::generated::worker::worker_service_server::WorkerService;
 use crate::worker::generated::worker::{
-    CoordinatorToWorkerMsg, WorkerToCoordinatorMsg, worker_to_coordinator_msg,
+    CoordinatorToWorkerMsg, TaskMetrics, WorkerToCoordinatorMsg, worker_to_coordinator_msg,
 };
 use crate::worker::task_data::TaskDataMetrics;
 use crate::{
@@ -14,15 +16,17 @@ use crate::{
     WorkerQueryContext,
 };
 use datafusion::common::DataFusionError;
+use datafusion::common::tree_node::TreeNodeRecursion;
 use datafusion::execution::SessionStateBuilder;
+use datafusion::physical_plan::ExecutionPlan;
 use datafusion::prelude::SessionConfig;
 use datafusion_proto::physical_plan::AsExecutionPlan;
 use datafusion_proto::protobuf::PhysicalPlanNode;
 use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt, TryStreamExt};
-use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, OnceLock};
 use tokio::sync::oneshot;
+use tokio::sync::oneshot::Sender;
 use tonic::{Request, Response, Status, Streaming};
 use url::Url;
 
@@ -105,12 +109,10 @@ impl Worker {
                 SamplerExec::kick_off_first_sampler(Arc::clone(&plan), Arc::clone(&task_ctx))?;
 
             // Initialize partition count to the number of partitions in the stage
-            let total_partitions = plan.properties().partitioning.partition_count();
             Ok::<_, DataFusionError>(TaskData {
                 base_plan: plan,
                 final_plan: Arc::new(OnceLock::new()),
                 task_ctx,
-                num_partitions_remaining: Arc::new(AtomicUsize::new(total_partitions)),
                 metrics_tx: match collect_metrics {
                     true => Arc::new(std::sync::Mutex::new(Some(metrics_tx))),
                     false => Arc::new(std::sync::Mutex::new(None)),
@@ -119,15 +121,33 @@ impl Worker {
             })
         };
 
-        entry.write(task_data().await.map_err(Arc::new)).map_err(|_| {
-            Status::internal(format!(
+        let task_data_result = task_data().await.map_err(Arc::new);
+
+        entry
+            .write(task_data_result.clone())
+            .map_err(|_| Status::internal(format!(
                 "Logic error while setting plan for TaskKey {key:?}: the plan was set twice. This is a bug in datafusion-distributed, please report it."
-            ))
-        })?;
+            )))?;
+
+        let task_data = task_data_result
+            .map_err(DataFusionError::Shared)
+            .map_err(datafusion_error_to_tonic_status)?;
 
         // Continue reading remaining messages (work unit feed data) in the background.
         let mut work_unit_senders = Some(remote_work_unit_feed_registry.senders);
         let task_data_entries = Arc::clone(&self.task_data_entries);
+
+        // This tokio task takes ownership of the `oneshot::Sender<pb::TaskMetrics>` that keeps
+        // alive the worker->coordinator stream. as soon as this task ends, the runtime metrics
+        // are send back and the worker->coordinator stream ends. The flow is the following:
+        // 1. The query ends normally, as all Arrow RecordBatches are already streamed.
+        // 2. In DistributedExec::execute(), the end query guard is dropped.
+        // 3. In StageCoordinator::send_plan_task(), `end_stream_notifier` fires and the
+        //    coordinator->worker channel is gracefully ended.
+        // 4. The coordinator->worker channel EOS is received by this same function, ending the
+        //    while loop inside this `tokio::spawn` below.
+        // 5. The metrics are send back in the worker->coordinator channel, and then that channel
+        //    is closed.
         #[allow(clippy::disallowed_methods)]
         tokio::spawn(async move {
             let mut body = body.map_ok(set_work_unit_received_time);
@@ -173,8 +193,20 @@ impl Worker {
                     }
                 }
             }
-            #[allow(clippy::disallowed_methods)]
-            tokio::spawn(async move { task_data_entries.invalidate(&key).await });
+
+            let metrics_tx = task_data.metrics_tx.lock().unwrap().take();
+            if let Some(Ok(plan)) = task_data.final_plan.get() {
+                let d_ctx = DistributedTaskContext {
+                    task_index: key.task_number as usize,
+                    task_count: request.task_count as usize,
+                };
+                let task_data_metrics = &task_data.task_data_metrics;
+                task_data_metrics.mark_execution_finished();
+                if let Some(metrics_tx) = metrics_tx {
+                    send_metrics_via_channel(metrics_tx, plan, d_ctx, task_data_metrics);
+                }
+            }
+            task_data_entries.invalidate(&key).await
         });
 
         let load_info_stream = FuturesUnordered::from_iter(load_info_rxs)
@@ -191,9 +223,9 @@ impl Worker {
                 })
             }));
 
-        // Stream back the metrics once the task finishes executing.
-        // The oneshot receiver resolves when impl_execute_task sends the collected
-        // metrics after all partitions have finished or been dropped.
+        // Stream back metrics when the coordinator channel reaches EOS. At that point the
+        // coordinator has closed the query-scoped request stream, so any remaining task state can
+        // be finalized even if some partition streams were not dropped through the normal path.
         let metrics_stream = metrics_rx.into_stream();
         let metrics_stream = metrics_stream.filter_map(async |task_metrics_or_channel_dropped| {
             let task_metrics = task_metrics_or_channel_dropped.ok()?;
@@ -210,4 +242,29 @@ impl Worker {
 
 fn missing(field: &'static str) -> impl FnOnce() -> Status {
     move || Status::invalid_argument(format!("Missing field '{field}'"))
+}
+
+/// Collects metrics from the plan in pre-order traversal order and sends them via the
+/// coordinator channel oneshot.
+fn send_metrics_via_channel(
+    metrics_tx: Sender<TaskMetrics>,
+    plan: &Arc<dyn ExecutionPlan>,
+    dt_ctx: DistributedTaskContext,
+    task_data_metrics: &Arc<TaskDataMetrics>,
+) {
+    let mut pre_order_plan_metrics = vec![];
+    let _ = plan.apply_with_dt_ctx(dt_ctx, |node, _| {
+        pre_order_plan_metrics.push(
+            node.metrics()
+                .and_then(|m| df_metrics_set_to_proto(&m).ok())
+                .unwrap_or_default(),
+        );
+        Ok(TreeNodeRecursion::Continue)
+    });
+
+    // Ignore send errors — the coordinator channel may have been dropped (e.g. query cancelled).
+    let _ = metrics_tx.send(TaskMetrics {
+        pre_order_plan_metrics,
+        task_metrics: Some(task_data_metrics.to_proto_metrics_set()),
+    });
 }
