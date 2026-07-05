@@ -66,6 +66,16 @@ extensions_options! {
         /// budget will still be admitted (otherwise we would livelock), so the actual peak per
         /// connection is `worker_connection_buffer_budget_bytes + max_message_size`.
         pub worker_connection_buffer_budget_bytes: usize, default = 64 * 1024 * 1024
+        /// When enabled, record batches are coalesced into larger chunks before being sent over
+        /// the wire between stages. This amortizes per-message network overhead by reducing the
+        /// number of Flight messages at the cost of a small increase in first-byte latency.
+        pub batch_flight_sends: bool, default = true
+        /// Multiplier applied to `datafusion.execution.batch_size` to compute the target row count
+        /// passed to the batch coalescer injected at stage boundaries when `batch_flight_sends` is
+        /// enabled. For example, a factor of 4 with a batch size of 8192 yields a 32768-row target.
+        ///
+        /// Must not be zero when `batch_flight_sends` is true;
+        pub flight_send_buffer_factor: usize, default = 4
         /// Calculates the task count of the different stages at execution time, based on runtime
         /// information collected by sampling at the head of the stages.
         ///

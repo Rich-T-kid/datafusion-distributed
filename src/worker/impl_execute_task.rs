@@ -8,6 +8,7 @@ use crate::worker::spawn_select_all::spawn_select_all;
 use crate::worker::worker_service::{TaskDataEntries, Worker};
 use arrow_flight::encode::{DictionaryHandling, FlightDataEncoder, FlightDataEncoderBuilder};
 use arrow_flight::error::FlightError;
+use arrow_select::coalesce::BatchCoalescer;
 use arrow_select::dictionary::garbage_collect_any_dictionary;
 use datafusion::arrow::array::{Array, AsArray, RecordBatch, RecordBatchOptions};
 use datafusion::arrow::ipc::CompressionType;
@@ -110,6 +111,8 @@ pub(crate) async fn execute_remote_task(
     };
     let mut flight_streams = Vec::with_capacity(arrow_streams.len());
     for (partition, arrow_stream) in partition_range.zip(arrow_streams) {
+        let arrow_stream =
+            coalesce_flight_stream(arrow_stream, d_cfg, task_ctx.session_config().batch_size());
         let flight_stream = build_flight_data_stream(arrow_stream, compression)?.map(move |msg| {
             // For each FlightData produced by this stream, mark it with the appropriate
             // partition. This stream will be merged with several others from other partitions,
@@ -134,6 +137,68 @@ pub(crate) async fn execute_remote_task(
         FlightError::Tonic(status) => *status,
         _ => Status::internal(format!("Error during flight stream: {err}")),
     }))))
+}
+
+/// Wraps `stream` in a coalescing adapter that buffers record batches until `target` rows
+/// are accumulated before yielding, reducing the number of Flight messages sent over the wire.
+/// When `target` is `None` the stream is returned unchanged.
+fn coalesce_flight_stream(
+    stream: SendableRecordBatchStream,
+    d_cfg: &DistributedConfig,
+    batch_size: usize,
+) -> SendableRecordBatchStream {
+    use futures::StreamExt as FuturesStreamExt;
+
+    if !d_cfg.batch_flight_sends {
+        return stream;
+    }
+    // handle the case where flag is set but batch_size is 0, which would cause a panic in BatchCoalescer
+    let factor = if d_cfg.flight_send_buffer_factor == 0 {
+        2
+    } else {
+        d_cfg.flight_send_buffer_factor
+    };
+    let target_rows = batch_size * factor;
+    let schema = stream.schema();
+    let coalescer = Arc::new(std::sync::Mutex::new(BatchCoalescer::new(
+        Arc::clone(&schema),
+        target_rows,
+    )));
+    let coalescer_for_flush = Arc::clone(&coalescer);
+
+    let batches = stream.flat_map(move |result| {
+        let mut coalescer = coalescer.lock().unwrap();
+        let ready: Vec<Result<RecordBatch>> = match result {
+            Err(e) => vec![Err(e)],
+            Ok(batch) => {
+                if let Err(e) = coalescer.push_batch(batch) {
+                    return futures::stream::iter(vec![Err(DataFusionError::from(e))]);
+                }
+                let mut completed = vec![];
+                while let Some(completed_batch) = coalescer.next_completed_batch() {
+                    completed.push(Ok(completed_batch));
+                }
+                completed
+            }
+        };
+        futures::stream::iter(ready)
+    });
+
+    // Once the upstream is exhausted, flush whatever partial batch remains in the coalescer.
+    let remaining = futures::stream::once(async move {
+        let mut coalescer = coalescer_for_flush.lock().unwrap();
+        coalescer
+            .finish_buffered_batch()
+            .map_err(DataFusionError::from)
+            .ok();
+        coalescer.next_completed_batch().map(Ok)
+    });
+    let remaining = FuturesStreamExt::filter_map(remaining, |opt| async move { opt });
+
+    Box::pin(RecordBatchStreamAdapter::new(
+        schema,
+        FuturesStreamExt::chain(batches, remaining),
+    ))
 }
 
 fn build_flight_data_stream(
@@ -181,6 +246,59 @@ fn build_flight_data_stream(
 ///
 /// Unused values can arise from operations such as filtering, where
 /// some keys may no longer be referenced in the filtered result.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use datafusion::common::record_batch;
+    use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
+    use futures::StreamExt;
+
+    #[tokio::test]
+    async fn coalesces_small_batches_into_fewer_large_sends() {
+        // 6 batches of 5-6k rows each
+        // target = 8192 * 3 = 24576 rows per send
+        // 6 individual sends of ~5-6k should collapse into just 2 sends
+        let b1 = record_batch!(("x", Int32, vec![1; 5500])).unwrap();
+        let b2 = record_batch!(("x", Int32, vec![1; 6000])).unwrap();
+        let b3 = record_batch!(("x", Int32, vec![1; 5500])).unwrap();
+        let b4 = record_batch!(("x", Int32, vec![1; 6200])).unwrap();
+        let b5 = record_batch!(("x", Int32, vec![1; 5300])).unwrap();
+        let b6 = record_batch!(("x", Int32, vec![1; 6000])).unwrap();
+        let total_rows: usize = 5500 + 6000 + 5500 + 6200 + 5300 + 6000;
+
+        let schema = b1.schema();
+        let stream = Box::pin(RecordBatchStreamAdapter::new(
+            Arc::clone(&schema),
+            futures::stream::iter(vec![Ok(b1), Ok(b2), Ok(b3), Ok(b4), Ok(b5), Ok(b6)]),
+        ));
+
+        let mut cfg = DistributedConfig::default();
+        cfg.batch_flight_sends = true;
+        cfg.flight_send_buffer_factor = 3;
+
+        let row_counts: Vec<usize> = coalesce_flight_stream(stream, &cfg, 8192)
+            .map(|b| b.unwrap().num_rows())
+            .collect()
+            .await;
+
+        let target = 8192 * 3;
+        assert_eq!(
+            row_counts.iter().sum::<usize>(),
+            total_rows,
+            "total rows must be preserved"
+        );
+        assert!(
+            row_counts.len() <= 2,
+            "6 small batches should collapse into at most 2 sends, got {}",
+            row_counts.len()
+        );
+        assert!(
+            row_counts.iter().rev().skip(1).all(|&n| n >= target),
+            "all but the last send must meet target size"
+        );
+    }
+}
+
 fn garbage_collect_arrays(batch: RecordBatch) -> Result<RecordBatch, DataFusionError> {
     let (schema, arrays, row_count) = batch.into_parts();
 
