@@ -81,13 +81,6 @@ impl Worker {
 
             let d_cfg = DistributedConfig::from_config_options(cfg.options())?;
             let collect_metrics = d_cfg.collect_metrics;
-            /*
-                        let shuffle_batch_size = d_cfg.shuffle_batch_size;
-                        let collect_metrics = d_cfg.collect_metrics;
-                        if shuffle_batch_size != 0 {
-                            cfg = cfg.with_batch_size(shuffle_batch_size);
-                        }
-            */
             let session_state = self
                 .session_builder
                 .build_session_state(WorkerQueryContext {
