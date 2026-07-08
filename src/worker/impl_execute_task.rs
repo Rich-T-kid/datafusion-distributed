@@ -111,7 +111,7 @@ pub(crate) async fn execute_remote_task(
     };
     let mut flight_streams = Vec::with_capacity(arrow_streams.len());
     for (partition, arrow_stream) in partition_range.zip(arrow_streams) {
-        let arrow_stream = coalesce_flight_stream(arrow_stream, &d_cfg);
+        let arrow_stream = coalesce_flight_stream(arrow_stream, d_cfg);
         let flight_stream = build_flight_data_stream(arrow_stream, compression)?.map(move |msg| {
             // For each FlightData produced by this stream, mark it with the appropriate
             // partition. This stream will be merged with several others from other partitions,
@@ -220,10 +220,10 @@ fn coalesce_flight_stream(
         return stream;
     }
     let schema = stream.schema();
-    let coalescer = Arc::new(std::sync::Mutex::new(BatchCoalescer::new(
-        Arc::clone(&schema),
-        d_cfg.shuffle_batch_size,
-    )));
+    let coalescer = Arc::new(std::sync::Mutex::new(
+        BatchCoalescer::new(Arc::clone(&schema), d_cfg.shuffle_batch_size)
+            .with_biggest_coalesce_batch_size(Some(d_cfg.shuffle_batch_size)),
+    ));
     let coalescer_for_flush = Arc::clone(&coalescer);
 
     let batches = stream.flat_map(move |result| {
