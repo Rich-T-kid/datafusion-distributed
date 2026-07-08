@@ -8,6 +8,7 @@ use crate::worker::spawn_select_all::spawn_select_all;
 use crate::worker::worker_service::{TaskDataEntries, Worker};
 use arrow_flight::encode::{DictionaryHandling, FlightDataEncoder, FlightDataEncoderBuilder};
 use arrow_flight::error::FlightError;
+use arrow_select::coalesce::BatchCoalescer;
 use arrow_select::dictionary::garbage_collect_any_dictionary;
 use datafusion::arrow::array::{Array, AsArray, RecordBatch, RecordBatchOptions};
 use datafusion::arrow::ipc::CompressionType;
@@ -110,6 +111,7 @@ pub(crate) async fn execute_remote_task(
     };
     let mut flight_streams = Vec::with_capacity(arrow_streams.len());
     for (partition, arrow_stream) in partition_range.zip(arrow_streams) {
+        let arrow_stream = coalesce_flight_stream(arrow_stream, &d_cfg);
         let flight_stream = build_flight_data_stream(arrow_stream, compression)?.map(move |msg| {
             // For each FlightData produced by this stream, mark it with the appropriate
             // partition. This stream will be merged with several others from other partitions,
@@ -204,4 +206,57 @@ fn garbage_collect_arrays(batch: RecordBatch) -> Result<RecordBatch, DataFusionE
         arrays,
         &RecordBatchOptions::new().with_row_count(Some(row_count)),
     )?)
+}
+
+/// Wraps `stream` in a coalescing adapter that buffers record batches until `target` rows
+/// are accumulated before yielding, reducing the number of Flight messages sent over the wire.
+fn coalesce_flight_stream(
+    stream: SendableRecordBatchStream,
+    d_cfg: &DistributedConfig,
+) -> SendableRecordBatchStream {
+    use futures::StreamExt as FuturesStreamExt;
+
+    if d_cfg.shuffle_batch_size == 0 {
+        return stream;
+    }
+    let schema = stream.schema();
+    let coalescer = Arc::new(std::sync::Mutex::new(BatchCoalescer::new(
+        Arc::clone(&schema),
+        d_cfg.shuffle_batch_size,
+    )));
+    let coalescer_for_flush = Arc::clone(&coalescer);
+
+    let batches = stream.flat_map(move |result| {
+        let mut coalescer = coalescer.lock().unwrap();
+        let ready: Vec<Result<RecordBatch>> = match result {
+            Err(e) => vec![Err(e)],
+            Ok(batch) => {
+                if let Err(e) = coalescer.push_batch(batch) {
+                    return futures::stream::iter(vec![Err(DataFusionError::from(e))]);
+                }
+                let mut completed = vec![];
+                while let Some(completed_batch) = coalescer.next_completed_batch() {
+                    completed.push(Ok(completed_batch));
+                }
+                completed
+            }
+        };
+        futures::stream::iter(ready)
+    });
+
+    // Once the upstream is exhausted, flush whatever partial batch remains in the coalescer.
+    let remaining = futures::stream::once(async move {
+        let mut coalescer = coalescer_for_flush.lock().unwrap();
+        coalescer
+            .finish_buffered_batch()
+            .map_err(DataFusionError::from)
+            .ok();
+        coalescer.next_completed_batch().map(Ok)
+    });
+    let remaining = FuturesStreamExt::filter_map(remaining, |opt| async move { opt });
+
+    Box::pin(RecordBatchStreamAdapter::new(
+        schema,
+        FuturesStreamExt::chain(batches, remaining),
+    ))
 }

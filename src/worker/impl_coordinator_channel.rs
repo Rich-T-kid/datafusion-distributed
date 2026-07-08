@@ -66,7 +66,7 @@ impl Worker {
         let task_data = || async {
             let headers = grpc_headers.into_headers();
 
-            let mut cfg = SessionConfig::default()
+            let cfg = SessionConfig::default()
                 .with_extension(Arc::new(remote_work_unit_feed_registry.receivers))
                 .with_extension(Arc::new(DistributedTaskContext {
                     task_index: key.task_number as usize,
@@ -80,12 +80,14 @@ impl Worker {
                 .with_distributed_option_extension_from_headers::<DistributedConfig>(&headers)?;
 
             let d_cfg = DistributedConfig::from_config_options(cfg.options())?;
-            let shuffle_batch_size = d_cfg.shuffle_batch_size;
             let collect_metrics = d_cfg.collect_metrics;
-            if shuffle_batch_size != 0 {
-                cfg = cfg.with_batch_size(shuffle_batch_size);
-            }
-
+            /*
+                        let shuffle_batch_size = d_cfg.shuffle_batch_size;
+                        let collect_metrics = d_cfg.collect_metrics;
+                        if shuffle_batch_size != 0 {
+                            cfg = cfg.with_batch_size(shuffle_batch_size);
+                        }
+            */
             let session_state = self
                 .session_builder
                 .build_session_state(WorkerQueryContext {
