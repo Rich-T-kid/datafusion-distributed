@@ -39,7 +39,11 @@ impl DisplayAs for LargeBatchExec {
 
 impl Debug for LargeBatchExec {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "LargeBatchExec(batch_size={}, {:?})", self.batch_size, self.input)
+        write!(
+            f,
+            "LargeBatchExec(batch_size={}, {:?})",
+            self.batch_size, self.input
+        )
     }
 }
 
@@ -59,14 +63,30 @@ impl ExecutionPlan for LargeBatchExec {
         self: Arc<Self>,
         mut children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        Ok(Arc::new(LargeBatchExec::new(children.remove(0), self.batch_size)))
+        Ok(Arc::new(LargeBatchExec::new(
+            children.remove(0),
+            self.batch_size,
+        )))
     }
 
-    fn execute(&self, partition: usize, context: Arc<TaskContext>) -> Result<SendableRecordBatchStream> {
+    fn execute(
+        &self,
+        partition: usize,
+        context: Arc<TaskContext>,
+    ) -> Result<SendableRecordBatchStream> {
+        // let original_batch_size = context.session_config().batch_size();
+        // println!(
+        //     "[LargeBatchExec] partition={partition} child={} original_batch_size={original_batch_size} → overriding to {}",
+        //     self.input.name(),
+        //     self.batch_size
+        // );
         let ctx = Arc::new(TaskContext::new(
             context.task_id(),
             context.session_id(),
-            context.session_config().clone().with_batch_size(self.batch_size),
+            context
+                .session_config()
+                .clone()
+                .with_batch_size(self.batch_size),
             context.scalar_functions().clone(),
             context.higher_order_functions().clone(),
             context.aggregate_functions().clone(),

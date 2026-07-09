@@ -380,6 +380,7 @@ fn build_flight_data_stream(
         .with_max_flight_data_size(usize::MAX)
         .build(
             stream
+                // .inspect_ok(|rb| println!("[flight_encoder] batch: {} rows", rb.num_rows()))
                 // Apply garbage collection of dictionary and view arrays before sending over the network
                 .and_then(|rb| std::future::ready(garbage_collect_arrays(rb)))
                 .map_err(|err| FlightError::Tonic(Box::new(datafusion_error_to_tonic_status(err)))),

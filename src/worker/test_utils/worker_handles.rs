@@ -212,6 +212,7 @@ pub async fn register_plan_on_worker(
             task_ctx,
             base_plan: plan,
             final_plan: Default::default(),
+            shuffle_batch_size: 0,
             metrics_tx: Arc::new(std::sync::Mutex::new(Some(metrics_tx))),
             task_data_metrics: Arc::new(TaskDataMetrics::new(0)),
         }))

@@ -1,6 +1,6 @@
 use crate::common::OnceLockResult;
 use crate::common::now_ns;
-use crate::distributed_planner::ProducerHead;
+use crate::distributed_planner::{ProducerHead, apply_shuffle_batch_sizing};
 use crate::protocol::ProducerHeadSpec;
 use crate::{MaxLatencyMetric, TaskMetrics};
 use datafusion::common::{DataFusionError, Result};
@@ -20,6 +20,9 @@ pub struct TaskData {
     pub(crate) task_ctx: Arc<TaskContext>,
     pub(crate) base_plan: Arc<dyn ExecutionPlan>,
     pub(crate) final_plan: Arc<OnceLockResult<Arc<dyn ExecutionPlan>>>,
+    /// When non-zero, wraps each hash RepartitionExec with LargeBatchExec so the
+    /// coalescer targets this batch size instead of the session default.
+    pub(crate) shuffle_batch_size: usize,
     /// Sender half of the metrics channel. `impl_coordinator_channel` takes this (via
     /// `Option::take`) when the coordinator channel reaches EOS, sending the collected metrics
     /// back to the coordinator through the `CoordinatorChannel` side channel.
@@ -107,6 +110,7 @@ impl TaskData {
         &self,
         producer_head_spec: &ProducerHeadSpec,
     ) -> Result<Arc<dyn ExecutionPlan>> {
+        let shuffle_batch_size = self.shuffle_batch_size;
         let result = self.final_plan.get_or_init(|| {
             let producer_head = ProducerHead::from_spec(
                 producer_head_spec,
@@ -114,7 +118,12 @@ impl TaskData {
                 &self.task_ctx,
             )?;
 
-            Ok(producer_head.insert(Arc::clone(&self.base_plan))?)
+            let plan = producer_head.insert(Arc::clone(&self.base_plan))?;
+            if shuffle_batch_size != 0 {
+                Ok(apply_shuffle_batch_sizing(plan, shuffle_batch_size)?)
+            } else {
+                Ok(plan)
+            }
         });
         match result {
             Ok(plan) => Ok(Arc::clone(plan)),
