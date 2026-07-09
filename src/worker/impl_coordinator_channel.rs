@@ -1,4 +1,5 @@
 use crate::common::TreeNodeExt;
+use crate::distributed_planner::apply_shuffle_batch_sizing;
 use crate::execution_plans::SamplerExec;
 use crate::work_unit_feed::{RemoteWorkUnitFeedRegistry, set_work_unit_received_time};
 use crate::worker::LocalWorkerContext;
@@ -53,7 +54,7 @@ impl Worker {
         let mut load_info_rxs = vec![];
 
         let task_data = || async {
-            let mut cfg = SessionConfig::default()
+            let cfg = SessionConfig::default()
                 .with_extension(Arc::new(remote_work_unit_feed_registry.receivers))
                 .with_extension(Arc::new(DistributedTaskContext {
                     task_index: request.task_key.task_number,
@@ -68,9 +69,9 @@ impl Worker {
             let d_cfg = DistributedConfig::from_config_options(cfg.options())?;
             let shuffle_batch_size = d_cfg.shuffle_batch_size;
             let collect_metrics = d_cfg.collect_metrics;
-            if shuffle_batch_size != 0 {
-                cfg = cfg.with_batch_size(shuffle_batch_size);
-            }
+            //if shuffle_batch_size != 0 {
+            //    cfg = cfg.with_batch_size(shuffle_batch_size);
+            //}
 
             let session_state = self
                 .session_builder
@@ -90,6 +91,9 @@ impl Worker {
 
             for hook in self.hooks.on_plan.iter() {
                 plan = hook(plan, session_state.config())?;
+            }
+            if shuffle_batch_size != 0 {
+                plan = apply_shuffle_batch_sizing(plan, shuffle_batch_size)?;
             }
             load_info_rxs =
                 SamplerExec::kick_off_first_sampler(Arc::clone(&plan), Arc::clone(&task_ctx))?;

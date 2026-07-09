@@ -2,6 +2,7 @@ mod broadcast;
 mod children_isolator_union;
 mod common;
 mod distributed_leaf;
+pub(crate) mod large_batch;
 mod metrics;
 mod network_broadcast;
 mod network_coalesce;
@@ -12,6 +13,7 @@ mod sampler;
 pub mod benchmarks;
 
 pub use broadcast::BroadcastExec;
+pub(crate) use large_batch::LargeBatchExec;
 pub(crate) use children_isolator_union::ChildWeight;
 pub use children_isolator_union::ChildrenIsolatorUnionExec;
 pub use distributed_leaf::DistributedLeafExec;

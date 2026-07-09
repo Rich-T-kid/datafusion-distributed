@@ -7,6 +7,7 @@ mod partial_reduce_below_network_shuffles;
 mod prepare_network_boundaries;
 mod push_fetch_into_network_coalesce;
 mod session_state_builder_ext;
+mod tune_shuffle_producer_batch_sizes;
 mod statistics;
 mod task_estimator;
 
@@ -20,3 +21,4 @@ pub use session_state_builder_ext::SessionStateBuilderExt;
 pub(crate) use statistics::calculate_cost;
 pub(crate) use task_estimator::set_distributed_task_estimator;
 pub use task_estimator::{TaskCountAnnotation, TaskEstimation, TaskEstimator, TaskRoutingContext};
+pub(crate) use tune_shuffle_producer_batch_sizes::apply_shuffle_batch_sizing;
