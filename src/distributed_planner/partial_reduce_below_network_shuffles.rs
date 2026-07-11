@@ -3,7 +3,7 @@ use crate::common::require_one_child;
 use crate::distributed_planner::distributed_config::DistributedConfig;
 use datafusion::common::DataFusionError;
 use datafusion::common::tree_node::{Transformed, TreeNode};
-use datafusion::config::ConfigOptions;
+use datafusion::prelude::SessionConfig;
 use datafusion::physical_expr::Partitioning;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_plan::aggregates::{AggregateExec, AggregateMode, PhysicalGroupBy};
@@ -16,9 +16,12 @@ use std::sync::Arc;
 /// same keys into the same partition.
 pub(crate) fn partial_reduce_below_network_shuffles(
     plan: Arc<dyn ExecutionPlan>,
-    cfg: &ConfigOptions,
+    session_config: &SessionConfig,
 ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
-    if !DistributedConfig::from_config_options(cfg)?.partial_reduce {
+    let d_cfg = session_config
+        .get_extension::<DistributedConfig>()
+        .expect("DistributedConfig should be set");
+    if !d_cfg.partial_reduce {
         return Ok(plan);
     }
 

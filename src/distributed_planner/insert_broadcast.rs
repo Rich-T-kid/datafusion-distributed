@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use datafusion::common::JoinType;
 use datafusion::common::tree_node::{Transformed, TreeNode};
-use datafusion::config::ConfigOptions;
 use datafusion::error::DataFusionError;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::joins::{
     CrossJoinExec, HashJoinExec, NestedLoopJoinExec, PartitionMode,
 };
+use datafusion::prelude::SessionConfig;
 
 use crate::BroadcastExec;
 
@@ -116,9 +116,11 @@ use super::DistributedConfig;
 /// ```
 pub(super) fn insert_broadcast_execs(
     plan: Arc<dyn ExecutionPlan>,
-    cfg: &ConfigOptions,
+    session_config: &SessionConfig,
 ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
-    let d_cfg = DistributedConfig::from_config_options(cfg)?;
+    let d_cfg = session_config
+        .get_extension::<DistributedConfig>()
+        .expect("DistributedConfig should be set");
     if !d_cfg.broadcast_joins {
         return Ok(plan);
     }
@@ -328,7 +330,7 @@ mod tests {
             .await;
         let ctx = test_plan.get_ctx();
         let plan = test_plan.physical_plan(query).await;
-        let plan = insert_broadcast_execs(plan, ctx.state_ref().read().config_options().as_ref())
+        let plan = insert_broadcast_execs(plan, ctx.state_ref().read().config())
             .expect("failed to insert broadcasts");
         format!("{}", displayable(plan.as_ref()).indent(true))
     }

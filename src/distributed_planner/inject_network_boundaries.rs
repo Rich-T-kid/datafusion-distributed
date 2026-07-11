@@ -8,7 +8,6 @@ use crate::{
 use async_trait::async_trait;
 use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
 use datafusion::common::{HashMap, Result, plan_err};
-use datafusion::config::ConfigOptions;
 use datafusion::physical_expr::Partitioning;
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::execution_plan::CardinalityEffect;
@@ -17,6 +16,7 @@ use datafusion::physical_plan::repartition::RepartitionExec;
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::union::UnionExec;
 use datafusion::physical_plan::{ExecutionPlan, PlanProperties};
+use datafusion::prelude::SessionConfig;
 use std::any::TypeId;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -136,11 +136,14 @@ use uuid::Uuid;
 pub(crate) async fn inject_network_boundaries(
     plan: Arc<dyn ExecutionPlan>,
     nb_builder: impl NetworkBoundaryBuilder + Send + Sync,
-    cfg: &ConfigOptions,
+    session_config: &SessionConfig,
 ) -> Result<Arc<dyn ExecutionPlan>> {
+    let d_cfg = session_config
+        .get_extension::<DistributedConfig>()
+        .expect("DistributedConfig should be set");
     let ctx = InjectNetworkBoundaryContext {
-        cfg,
-        d_cfg: DistributedConfig::from_config_options(cfg)?,
+        session_config,
+        d_cfg: &d_cfg,
         nb_builder: &nb_builder,
         task_counts: &Mutex::new(HashMap::new()),
         query_id: Uuid::new_v4(),
@@ -154,7 +157,7 @@ pub(crate) async fn inject_network_boundaries(
 pub(crate) struct InjectNetworkBoundaryContext<'a> {
     pub(crate) d_cfg: &'a DistributedConfig,
 
-    cfg: &'a ConfigOptions,
+    session_config: &'a SessionConfig,
     nb_builder: &'a (dyn NetworkBoundaryBuilder + Send + Sync),
     task_counts: &'a Mutex<HashMap<usize, TaskCountAnnotation>>,
     query_id: Uuid,
@@ -234,7 +237,9 @@ async fn _inject_network_boundaries(
         // This is a leaf node, maybe a DataSourceExec, or maybe something else custom from the
         // user. We need to estimate how many tasks are needed for this leaf node, and we'll take
         // this decision into account when deciding how many tasks will be actually used.
-        return if let Some(estimate) = estimator.task_estimation(&plan, nb_ctx.cfg) {
+        return if let Some(estimate) =
+            estimator.task_estimation_with_session(&plan, nb_ctx.session_config)
+        {
             Ok(nb_ctx.plan_with_task_count(plan, estimate.task_count.limit(nb_ctx.max_tasks()?)))
         } else {
             // We could not determine how many tasks this leaf node should run on, so
@@ -255,7 +260,7 @@ async fn _inject_network_boundaries(
     let processed_children = futures::future::try_join_all(futures).await?;
 
     let mut task_count = estimator
-        .task_estimation(&plan, nb_ctx.cfg)
+        .task_estimation_with_session(&plan, nb_ctx.session_config)
         .map_or(Desired(1), |v| v.task_count);
     if nb_ctx.d_cfg.children_isolator_unions && plan.is::<UnionExec>() {
         // Unions have the chance to decide how many tasks they should run on. If there's a union
@@ -419,7 +424,7 @@ impl InjectNetworkBoundaryContext<'_> {
             let scaled_up = self.d_cfg.__private_task_estimator.scale_up_leaf_node(
                 plan,
                 task_count.as_usize(),
-                self.cfg,
+                self.session_config.options(),
             )?;
             match scaled_up {
                 None => Ok(self.plan_with_task_count(Arc::clone(plan), task_count)),
@@ -1262,11 +1267,14 @@ mod tests {
         let plan = test_plan.physical_plan(query).await;
         let session_config = test_plan.get_ctx().copied_config();
 
-        let plan_w_broadcast = insert_broadcast_execs(plan, session_config.options())
+        let plan_w_broadcast = insert_broadcast_execs(plan, &session_config)
             .expect("failed to insert broadcasts");
+        let d_cfg = session_config
+            .get_extension::<DistributedConfig>()
+            .expect("DistributedConfig should be set");
         let network_boundaries_ctx = InjectNetworkBoundaryContext {
-            cfg: session_config.options(),
-            d_cfg: DistributedConfig::from_config_options(session_config.options()).unwrap(),
+            session_config: &session_config,
+            d_cfg: &d_cfg,
             task_counts: &Mutex::new(HashMap::new()),
             query_id: Uuid::new_v4(),
             stage_id: &AtomicUsize::new(1),

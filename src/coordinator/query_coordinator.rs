@@ -1,5 +1,7 @@
 use crate::common::{TreeNodeExt, now_ns, task_ctx_with_extension};
-use crate::config_extension_ext::get_config_extension_propagation_headers;
+use crate::config_extension_ext::{
+    get_config_extension_propagation_headers, get_distributed_config_propagation_headers,
+};
 use crate::coordinator::MetricsStore;
 use crate::coordinator::latency_metric::LatencyMetric;
 use crate::execution_plans::{ChildrenIsolatorUnionExec, DistributedLeafExec};
@@ -171,6 +173,7 @@ impl<'a> StageCoordinator<'a> {
         let channel_resolver = get_distributed_channel_resolver(self.task_ctx.as_ref());
 
         let mut headers = get_config_extension_propagation_headers(session_config)?;
+        headers.extend(get_distributed_config_propagation_headers(session_config)?);
         headers.extend(get_passthrough_headers(session_config));
 
         let coordinator_to_worker_stream = futures::stream::once(async { msg })
@@ -261,7 +264,9 @@ impl<'a> StageCoordinator<'a> {
         tx: UnboundedSender<CoordinatorToWorkerMsg>,
     ) -> Result<()> {
         let session_config = self.task_ctx.session_config();
-        let d_cfg = DistributedConfig::from_config_options(session_config.options())?;
+        let d_cfg = session_config
+            .get_extension::<DistributedConfig>()
+            .expect("DistributedConfig should be set");
         let wuf_registry = &d_cfg.__private_work_unit_feed_registry;
 
         let d_ctx = DistributedTaskContext {
@@ -333,7 +338,9 @@ impl<'a> StageCoordinator<'a> {
         task_i: usize,
     ) -> Result<(Arc<dyn ExecutionPlan>, Vec<WorkUnitFeedDeclaration>)> {
         let session_config = self.task_ctx.session_config();
-        let d_cfg = DistributedConfig::from_config_options(session_config.options())?;
+        let d_cfg = session_config
+            .get_extension::<DistributedConfig>()
+            .expect("DistributedConfig should be set");
         let wuf_registry = &d_cfg.__private_work_unit_feed_registry;
 
         let mut work_unit_feed_declarations = vec![];
@@ -373,7 +380,9 @@ impl<'a> StageCoordinator<'a> {
     ///   [TaskEstimator::route_tasks] method.
     pub(super) fn routed_urls(&self) -> Result<Vec<Url>> {
         let session_config = self.task_ctx.session_config();
-        let d_cfg = DistributedConfig::from_config_options(session_config.options())?;
+        let d_cfg = session_config
+            .get_extension::<DistributedConfig>()
+            .expect("DistributedConfig should be set");
         let worker_resolver = get_distributed_worker_resolver(session_config)?;
         let task_estimator = &d_cfg.__private_task_estimator;
 

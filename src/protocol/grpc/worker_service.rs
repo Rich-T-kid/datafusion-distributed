@@ -130,8 +130,10 @@ impl pb::worker_service_server::WorkerService for Worker {
             .await
             .map_err(datafusion_error_to_tonic_status)?;
 
-        let d_cfg = DistributedConfig::from_config_options(task_ctx.session_config().options())
-            .map_err(datafusion_error_to_tonic_status)?;
+        let d_cfg = task_ctx
+            .session_config()
+            .get_extension::<DistributedConfig>()
+            .ok_or_else(|| Status::internal("DistributedConfig not in SessionConfig.extensions"))?;
 
         let compression = match d_cfg.compression.as_str() {
             "lz4" => Some(CompressionType::LZ4_FRAME),

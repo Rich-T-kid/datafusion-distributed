@@ -1,4 +1,3 @@
-use crate::config_extension_ext::set_distributed_option_extension;
 use crate::{DistributedConfig, WorkUnit, WorkUnitFeed, WorkUnitFeedProvider};
 use datafusion::common::Result;
 use datafusion::execution::TaskContext;
@@ -93,6 +92,12 @@ pub(crate) struct WorkUnitFeedRegistry {
     entries: Vec<Arc<dyn WorkUnitFeedGetter>>,
 }
 
+impl std::fmt::Debug for WorkUnitFeedRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "WorkUnitFeedRegistry")
+    }
+}
+
 impl WorkUnitFeedRegistry {
     pub(crate) fn get_work_unit_feed<'a>(
         &self,
@@ -113,21 +118,13 @@ where
     T::WorkUnit: 'static,
     F: Fn(&Arc<dyn ExecutionPlan>) -> Option<&WorkUnitFeed<T>> + Send + Sync + 'static,
 {
-    let opts = cfg.options_mut();
-    if let Some(distributed_cfg) = opts.extensions.get_mut::<DistributedConfig>() {
-        distributed_cfg
-            .__private_work_unit_feed_registry
-            .entries
-            .push(Arc::new(getter));
-    } else {
-        let mut registry = WorkUnitFeedRegistry::default();
-        registry.entries.push(Arc::new(getter));
-        set_distributed_option_extension(
-            cfg,
-            DistributedConfig {
-                __private_work_unit_feed_registry: registry,
-                ..Default::default()
-            },
-        )
-    }
+    let mut distributed_cfg = cfg
+        .get_extension::<DistributedConfig>()
+        .map(|arc| arc.as_ref().clone())
+        .unwrap_or_default();
+    distributed_cfg
+        .__private_work_unit_feed_registry
+        .entries
+        .push(Arc::new(getter));
+    cfg.set_extension(Arc::new(distributed_cfg));
 }
