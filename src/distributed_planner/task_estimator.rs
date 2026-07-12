@@ -352,6 +352,9 @@ impl CombinedTaskEstimator {
                 return Some(result);
             }
         }
+        // We want to execute the default estimators last so that the user-provided ones have
+        // a chance of providing an estimation.
+        // If none of the user-provided returned an estimation, the default ones are used.
         FileScanConfigTaskEstimator::estimate_with_session(plan, session_config)
     }
 }

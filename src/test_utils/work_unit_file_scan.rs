@@ -357,23 +357,8 @@ impl PhysicalOptimizerRule for WorkUnitFileScanRule {
 /// only keep the inner `FileScanConfig`'s file groups, flatten them back into
 /// one `PartitionedFile` per feed slot, and feed them into a freshly built
 /// `WorkUnitFileScanConfig`.
-/// Bytes-per-partition budget used when `WorkUnitFileScanTaskEstimator` has no explicit
-/// value configured.  Matches the default in [DistributedConfig].
-const DEFAULT_BYTES_PER_PARTITION: usize = 16 * 1024 * 1024;
-
-#[derive(Debug)]
-pub struct WorkUnitFileScanTaskEstimator {
-    /// Mirrors [DistributedConfig::file_scan_config_bytes_per_partition].
-    pub bytes_per_partition: usize,
-}
-
-impl Default for WorkUnitFileScanTaskEstimator {
-    fn default() -> Self {
-        Self {
-            bytes_per_partition: DEFAULT_BYTES_PER_PARTITION,
-        }
-    }
-}
+#[derive(Debug, Default)]
+pub struct WorkUnitFileScanTaskEstimator;
 
 impl TaskEstimator for WorkUnitFileScanTaskEstimator {
     fn task_estimation(
@@ -381,6 +366,8 @@ impl TaskEstimator for WorkUnitFileScanTaskEstimator {
         plan: &Arc<dyn ExecutionPlan>,
         cfg: &ConfigOptions,
     ) -> Option<TaskEstimation> {
+        const BYTES_PER_PARTITION: usize = 16 * 1024 * 1024;
+
         let dse = plan.downcast_ref::<DataSourceExec>()?;
         let wfs = dse.data_source().downcast_ref::<WorkUnitFileScanConfig>()?;
 
@@ -392,7 +379,7 @@ impl TaskEstimator for WorkUnitFileScanTaskEstimator {
         }
 
         let task_count = total_bytes
-            .div_ceil(self.bytes_per_partition)
+            .div_ceil(BYTES_PER_PARTITION)
             .div_ceil(cfg.execution.target_partitions);
 
         Some(TaskEstimation {

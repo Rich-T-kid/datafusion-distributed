@@ -38,7 +38,7 @@ pub fn get_distributed_worker_resolver(
 ) -> Result<Arc<dyn WorkerResolver>, DataFusionError> {
     let distributed_cfg = cfg
         .get_extension::<DistributedConfig>()
-        .ok_or_else(|| DataFusionError::Execution("WorkerResolver not present in the session config".to_string()))?;
+        .ok_or_else(|| DataFusionError::Execution("DistributedConfig not present in the session config".to_string()))?;
     Ok(Arc::clone(&distributed_cfg.__private_worker_resolver.0))
 }
 

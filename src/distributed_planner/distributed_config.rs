@@ -9,10 +9,7 @@ use std::sync::Arc;
 
 /// Configuration for the distributed planner.
 ///
-/// Stored in `SessionConfig.extensions` (the opaque TypeId map), not in
-/// `ConfigOptions.extensions`.  The serializable scalar fields are propagated to
-/// workers via gRPC metadata headers; the `__private_*` fields are non-serializable
-/// and exist only on the coordinator side.
+/// Stored in `SessionConfig.extensions`
 #[derive(Clone, Debug)]
 pub struct DistributedConfig {
     /// Sets the number of bytes each partition is expected to scan from parquet files. If
@@ -124,7 +121,9 @@ impl Default for DistributedConfig {
 }
 
 impl DistributedConfig {
-    /// Appends a [TaskEstimator] to the list.
+    /// Appends a [TaskEstimator] to the list. [TaskEstimator] will be executed sequentially in
+    /// order on leaf nodes, and the first one to provide a value is the one that gets to decide
+    /// how many tasks are used for that [Stage].
     pub fn with_task_estimator(
         mut self,
         task_estimator: impl TaskEstimator + Send + Sync + 'static,
