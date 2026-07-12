@@ -4,6 +4,7 @@ mod tests {
     use datafusion::error::DataFusionError;
     use datafusion::execution::SessionState;
     use datafusion::physical_plan::execute_stream;
+    use datafusion::prelude::SessionContext;
     use datafusion_distributed::test_utils::localhost::start_localhost_context;
     use datafusion_distributed::test_utils::test_work_unit_feed::{
         RowGeneratorExec, TestWorkUnitFeedExecCodec, TestWorkUnitFeedFunction,
@@ -612,9 +613,8 @@ mod tests {
 
     #[tokio::test]
     async fn broadcast_join_over_feeds() -> Result<(), Box<dyn std::error::Error>> {
-        let (plan, results) = run_query(
+        let (plan, results) = run_query_with_setup(
             r#"
-            SET distributed.broadcast_joins=true;
             SELECT
                 a.tag as a_tag, a.task as a_task, a.partition as a_partition, a.letter,
                 b.tag as b_tag, b.task as b_task, b.partition as b_partition
@@ -623,6 +623,7 @@ mod tests {
             ON a.letter = b.letter
             ORDER BY a_task, a_partition, a.letter, b_task, b_partition
         "#,
+            |ctx: &mut SessionContext| ctx.set_distributed_broadcast_joins(true),
         )
         .await?;
 
@@ -803,9 +804,8 @@ mod tests {
 
     #[tokio::test]
     async fn nested_union_budget_exceeds_children_sum() -> Result<(), Box<dyn std::error::Error>> {
-        let (plan, results) = run_query(
+        let (plan, results) = run_query_with_setup(
             r#"
-            SET distributed.broadcast_joins = true;
             SELECT b.tag, a.tag
             FROM test_work_unit('big', 4, 'rows(1)', 'rows(1)', 'rows(1)', 'rows(1)') b
             INNER JOIN (
@@ -815,6 +815,7 @@ mod tests {
             ) a ON a.letter = b.letter
             ORDER BY a.tag, b.tag
             "#,
+            |ctx: &mut SessionContext| ctx.set_distributed_broadcast_joins(true),
         )
         .await?;
 
@@ -860,11 +861,19 @@ mod tests {
     }
 
     async fn run_query(sql: &str) -> Result<(String, String), DataFusionError> {
+        run_query_with_setup(sql, |_| Ok(())).await
+    }
+
+    async fn run_query_with_setup(
+        sql: &str,
+        setup: impl FnOnce(&mut SessionContext) -> Result<(), DataFusionError>,
+    ) -> Result<(String, String), DataFusionError> {
         let (mut ctx, _guard, _) = start_localhost_context(3, build_state).await;
         ctx.set_distributed_work_unit_feed(|p: &RowGeneratorExec| Some(&p.feed));
         ctx.set_distributed_user_codec(TestWorkUnitFeedExecCodec);
         ctx.set_distributed_task_estimator(TestWorkUnitFeedTaskEstimator);
         ctx.register_udtf("test_work_unit", Arc::new(TestWorkUnitFeedFunction));
+        setup(&mut ctx)?;
 
         let mut df_opt = None;
         for sql in sql.split(";") {
