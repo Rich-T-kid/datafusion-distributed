@@ -1267,8 +1267,8 @@ mod tests {
         let plan = test_plan.physical_plan(query).await;
         let session_config = test_plan.get_ctx().copied_config();
 
-        let plan_w_broadcast = insert_broadcast_execs(plan, &session_config)
-            .expect("failed to insert broadcasts");
+        let plan_w_broadcast =
+            insert_broadcast_execs(plan, &session_config).expect("failed to insert broadcasts");
         let d_cfg = session_config
             .get_extension::<DistributedConfig>()
             .expect("DistributedConfig should be set");

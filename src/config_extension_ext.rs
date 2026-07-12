@@ -134,11 +134,7 @@ pub(crate) fn get_config_extension_propagation_headers(
 pub(crate) fn get_distributed_config_propagation_headers(
     cfg: &SessionConfig,
 ) -> Result<HeaderMap, DataFusionError> {
-    fn insert(
-        headers: &mut HeaderMap,
-        field: &str,
-        value: &str,
-    ) -> Result<(), DataFusionError> {
+    fn insert(headers: &mut HeaderMap, field: &str, value: &str) -> Result<(), DataFusionError> {
         let name = format!("{FLIGHT_METADATA_CONFIG_PREFIX}distributed.{field}");
         headers.insert(
             HeaderName::from_str(&name)
@@ -155,18 +151,38 @@ pub(crate) fn get_distributed_config_propagation_headers(
     };
     let mut headers = HeaderMap::new();
     let h = &mut headers;
-    insert(h, "file_scan_config_bytes_per_partition", &d.file_scan_config_bytes_per_partition.to_string())?;
-    insert(h, "cardinality_task_count_factor", &d.cardinality_task_count_factor.to_string())?;
-    insert(h, "children_isolator_unions", &d.children_isolator_unions.to_string())?;
+    insert(
+        h,
+        "file_scan_config_bytes_per_partition",
+        &d.file_scan_config_bytes_per_partition.to_string(),
+    )?;
+    insert(
+        h,
+        "cardinality_task_count_factor",
+        &d.cardinality_task_count_factor.to_string(),
+    )?;
+    insert(
+        h,
+        "children_isolator_unions",
+        &d.children_isolator_unions.to_string(),
+    )?;
     insert(h, "collect_metrics", &d.collect_metrics.to_string())?;
     insert(h, "broadcast_joins", &d.broadcast_joins.to_string())?;
     insert(h, "compression", &d.compression)?;
     insert(h, "shuffle_batch_size", &d.shuffle_batch_size.to_string())?;
     insert(h, "max_tasks_per_stage", &d.max_tasks_per_stage.to_string())?;
     insert(h, "partial_reduce", &d.partial_reduce.to_string())?;
-    insert(h, "worker_connection_buffer_budget_bytes", &d.worker_connection_buffer_budget_bytes.to_string())?;
+    insert(
+        h,
+        "worker_connection_buffer_budget_bytes",
+        &d.worker_connection_buffer_budget_bytes.to_string(),
+    )?;
     insert(h, "dynamic_task_count", &d.dynamic_task_count.to_string())?;
-    insert(h, "bytes_per_partition_per_second", &d.bytes_per_partition_per_second.to_string())?;
+    insert(
+        h,
+        "bytes_per_partition_per_second",
+        &d.bytes_per_partition_per_second.to_string(),
+    )?;
     Ok(headers)
 }
 
@@ -199,7 +215,9 @@ pub(crate) fn set_distributed_config_from_headers(
             }};
         }
         match field {
-            "file_scan_config_bytes_per_partition" => parse!(d.file_scan_config_bytes_per_partition),
+            "file_scan_config_bytes_per_partition" => {
+                parse!(d.file_scan_config_bytes_per_partition)
+            }
             "cardinality_task_count_factor" => parse!(d.cardinality_task_count_factor),
             "children_isolator_unions" => parse!(d.children_isolator_unions),
             "collect_metrics" => parse!(d.collect_metrics),
@@ -208,7 +226,9 @@ pub(crate) fn set_distributed_config_from_headers(
             "shuffle_batch_size" => parse!(d.shuffle_batch_size),
             "max_tasks_per_stage" => parse!(d.max_tasks_per_stage),
             "partial_reduce" => parse!(d.partial_reduce),
-            "worker_connection_buffer_budget_bytes" => parse!(d.worker_connection_buffer_budget_bytes),
+            "worker_connection_buffer_budget_bytes" => {
+                parse!(d.worker_connection_buffer_budget_bytes)
+            }
             "dynamic_task_count" => parse!(d.dynamic_task_count),
             "bytes_per_partition_per_second" => parse!(d.bytes_per_partition_per_second),
             _ => {}
