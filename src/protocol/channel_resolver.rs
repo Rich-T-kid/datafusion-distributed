@@ -1,7 +1,6 @@
-use crate::config_extension_ext::set_distributed_option_extension;
 #[cfg(feature = "grpc")]
 use crate::protocol::grpc;
-use crate::{DistributedConfig, WorkerChannel};
+use crate::WorkerChannel;
 use async_trait::async_trait;
 use datafusion::common::DataFusionError;
 use datafusion::execution::TaskContext;
@@ -44,27 +43,17 @@ pub(crate) fn set_distributed_channel_resolver(
     cfg: &mut SessionConfig,
     channel_resolver: impl ChannelResolver + Send + Sync + 'static,
 ) {
-    let opts = cfg.options_mut();
-    let channel_resolver = ChannelResolverExtension(Some(Arc::new(channel_resolver)));
-    if let Some(distributed_cfg) = opts.extensions.get_mut::<DistributedConfig>() {
-        distributed_cfg.__private_channel_resolver = channel_resolver;
-    } else {
-        set_distributed_option_extension(
-            cfg,
-            DistributedConfig {
-                __private_channel_resolver: channel_resolver,
-                ..Default::default()
-            },
-        )
-    }
+    cfg.set_extension(Arc::new(ChannelResolverExtension(Some(Arc::new(
+        channel_resolver,
+    )))));
 }
 
 pub fn get_distributed_channel_resolver(
     task_ctx: &TaskContext,
 ) -> Arc<dyn ChannelResolver + Send + Sync> {
-    let opts = task_ctx.session_config().options();
-    if let Some(distributed_cfg) = opts.extensions.get::<DistributedConfig>()
-        && let Some(cr) = &distributed_cfg.__private_channel_resolver.0
+    let session_cfg = task_ctx.session_config();
+    if let Some(channel_resolver_ext) = session_cfg.get_extension::<ChannelResolverExtension>()
+        && let Some(cr) = &channel_resolver_ext.0
     {
         return Arc::clone(cr);
     }

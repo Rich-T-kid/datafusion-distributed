@@ -1,4 +1,5 @@
 use crate::common::TreeNodeExt;
+use crate::distributed_planner::CombinedTaskEstimator;
 use crate::distributed_planner::inject_network_boundaries::{
     CardinalityBasedNetworkBoundaryBuilder, inject_network_boundaries,
 };
@@ -70,18 +71,21 @@ impl QueryPlanner for DistributedQueryPlanner {
             return Ok(original_plan);
         }
 
-        let cfg = session_state.config_options().as_ref();
+        let session_cfg = session_state.config();
+        let cfg = session_cfg.options();
         let d_cfg = DistributedConfig::from_config_options(cfg)?;
 
         // The plan already contains network boundaries set by the user. Just ensure they have nice
         // unique identifiers for each stage, and move forward with it.
         if original_plan.exists(|plan| Ok(plan.is_network_boundary()))? {
             // Ensure the leafs are appropriately scaled up.
+            let task_estimator = session_cfg
+                .get_extension::<CombinedTaskEstimator>()
+                .unwrap_or_else(|| Arc::new(CombinedTaskEstimator::default()));
             let scaled = original_plan.transform_down_with_task_count(1, |plan, task_count| {
                 if !plan.children().is_empty() {
                     return Ok(Transformed::no(plan));
                 }
-                let task_estimator = &d_cfg.__private_task_estimator;
                 match task_estimator.scale_up_leaf_node(&plan, task_count, cfg)? {
                     None => Ok(Transformed::no(plan)),
                     Some(scaled) => Ok(Transformed::yes(scaled)),
@@ -104,9 +108,9 @@ impl QueryPlanner for DistributedQueryPlanner {
             plan = Arc::new(CoalescePartitionsExec::new(plan));
         }
 
-        let cfg = session_state.config_options();
+        let arc_cfg = session_state.config_options();
 
-        plan = insert_broadcast_execs(plan, cfg)?;
+        plan = insert_broadcast_execs(plan, arc_cfg)?;
 
         if d_cfg.dynamic_task_count {
             // The task count will be decided dynamically at execution time.
@@ -116,14 +120,15 @@ impl QueryPlanner for DistributedQueryPlanner {
         }
 
         // Compute per-node task counts and inject `Network*Exec` nodes at the stage boundaries.
-        plan = inject_network_boundaries(plan, CardinalityBasedNetworkBoundaryBuilder, cfg).await?;
+        plan = inject_network_boundaries(plan, CardinalityBasedNetworkBoundaryBuilder, session_cfg)
+            .await?;
 
         plan = prepare_network_boundaries(plan)?;
         if !plan.exists(|plan| Ok(plan.is_network_boundary()))? {
             return Ok(original_plan);
         }
 
-        let plan = partial_reduce_below_network_shuffles(plan, cfg)?;
+        let plan = partial_reduce_below_network_shuffles(plan, arc_cfg)?;
         let plan = push_fetch_into_network_coalesce(plan)?;
 
         Ok(Arc::new(
