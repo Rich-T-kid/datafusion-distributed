@@ -90,12 +90,12 @@ impl DistributedConfig {
         Ok(distributed_cfg)
     }
 
-    /// Gets the [DistributedConfig] from the [ConfigOptions]'s extensions.
+    /// Gets the [DistributedConfig] from the [ConfigOptions]'s extensions, inserting a default if not present.
     pub fn from_config_options_mut(cfg: &mut ConfigOptions) -> Result<&mut Self, DataFusionError> {
-        let Some(distributed_cfg) = cfg.extensions.get_mut::<DistributedConfig>() else {
-            return plan_err!("DistributedConfig is not in ConfigOptions.extensions");
-        };
-        Ok(distributed_cfg)
+        if cfg.extensions.get::<DistributedConfig>().is_none() {
+            cfg.extensions.insert(DistributedConfig::default());
+        }
+        Ok(cfg.extensions.get_mut::<DistributedConfig>().unwrap())
     }
 
     /// Gets the [DistributedConfig] from the [ConfigOptions]'s in the provided [SessionConfig].
@@ -107,7 +107,6 @@ impl DistributedConfig {
     pub fn from_task_context(ctx: &Arc<TaskContext>) -> Result<&Self, DataFusionError> {
         Self::from_session_config(ctx.session_config())
     }
-
 }
 
 impl ConfigExtension for DistributedConfig {

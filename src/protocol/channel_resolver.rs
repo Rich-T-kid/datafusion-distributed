@@ -1,6 +1,6 @@
+use crate::WorkerChannel;
 #[cfg(feature = "grpc")]
 use crate::protocol::grpc;
-use crate::WorkerChannel;
 use async_trait::async_trait;
 use datafusion::common::DataFusionError;
 use datafusion::execution::TaskContext;

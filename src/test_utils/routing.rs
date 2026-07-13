@@ -293,8 +293,7 @@ impl TaskEstimator for URLEmitterTaskEstimator {
 
     fn route_tasks(&self, routing_ctx: &crate::TaskRoutingContext<'_>) -> Result<Option<Vec<Url>>> {
         let mut routed_urls =
-            get_distributed_worker_resolver(routing_ctx.task_ctx.session_config())?
-                .get_urls()?;
+            get_distributed_worker_resolver(routing_ctx.task_ctx.session_config())?.get_urls()?;
 
         // Trivial routing policy: Assign tasks to URLs in reverse order.
         routed_urls.reverse();
