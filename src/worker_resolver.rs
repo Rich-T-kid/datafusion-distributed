@@ -1,3 +1,4 @@
+use crate::distributed_planner::DistributedConfig;
 use datafusion::common::{DataFusionError, exec_err, not_impl_err};
 use datafusion::prelude::SessionConfig;
 use std::any::Any;
@@ -24,6 +25,10 @@ pub(crate) fn set_distributed_worker_resolver(
     worker_resolver: impl WorkerResolver + 'static,
 ) {
     cfg.set_extension(Arc::new(WorkerResolverExtension(Arc::new(worker_resolver))));
+    let options = cfg.options_mut();
+    if options.extensions.get::<DistributedConfig>().is_none() {
+        options.extensions.insert(DistributedConfig::default());
+    }
 }
 
 pub fn get_distributed_worker_resolver(
