@@ -145,12 +145,8 @@ pub(crate) async fn inject_network_boundaries(
     let ctx = InjectNetworkBoundaryContext {
         cfg,
         d_cfg: DistributedConfig::from_config_options(cfg)?,
-        worker_resolver: session_cfg
-            .get_extension::<WorkerResolverExtension>()
-            .unwrap_or_else(|| Arc::new(WorkerResolverExtension::not_implemented())),
-        task_estimator: session_cfg
-            .get_extension::<CombinedTaskEstimator>()
-            .unwrap_or_else(|| Arc::new(CombinedTaskEstimator::default())),
+        worker_resolver: WorkerResolverExtension::from_session_config(session_cfg),
+        task_estimator: CombinedTaskEstimator::from_session_config(session_cfg),
         nb_builder: &nb_builder,
         task_counts: &Mutex::new(HashMap::new()),
         query_id: Uuid::new_v4(),
@@ -1273,12 +1269,8 @@ mod tests {
         let network_boundaries_ctx = InjectNetworkBoundaryContext {
             cfg: session_config.options(),
             d_cfg: DistributedConfig::from_config_options(session_config.options()).unwrap(),
-            worker_resolver: session_config
-                .get_extension::<WorkerResolverExtension>()
-                .unwrap_or_else(|| Arc::new(WorkerResolverExtension::not_implemented())),
-            task_estimator: session_config
-                .get_extension::<CombinedTaskEstimator>()
-                .unwrap_or_else(|| Arc::new(CombinedTaskEstimator::default())),
+            worker_resolver: WorkerResolverExtension::from_session_config(&session_config),
+            task_estimator: CombinedTaskEstimator::from_session_config(&session_config),
             task_counts: &Mutex::new(HashMap::new()),
             query_id: Uuid::new_v4(),
             stage_id: &AtomicUsize::new(1),

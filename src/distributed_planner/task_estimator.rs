@@ -319,6 +319,13 @@ pub(crate) struct CombinedTaskEstimator {
     pub(crate) user_provided: Vec<Arc<dyn TaskEstimator + Send + Sync>>,
 }
 
+impl CombinedTaskEstimator {
+    pub(crate) fn from_session_config(cfg: &SessionConfig) -> Arc<Self> {
+        cfg.get_extension::<CombinedTaskEstimator>()
+            .unwrap_or_else(|| Arc::new(Self::default()))
+    }
+}
+
 impl TaskEstimator for CombinedTaskEstimator {
     fn task_estimation(
         &self,
