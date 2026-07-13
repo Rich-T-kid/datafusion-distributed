@@ -22,7 +22,7 @@ pub(crate) fn set_distributed_option_extension<T: ConfigExtension + Default>(
 }
 
 /// Registers `prefix` in [`ConfigExtensionPropagationContext`] so that headers for that
-/// extension are included in outgoing gRPC requests. Idempotent — safe to call multiple times.
+/// extension are included in outgoing gRPC requests. Idempotent: safe to call multiple times.
 pub(crate) fn register_config_extension_prefix(cfg: &mut SessionConfig, prefix: &'static str) {
     let mut ctx = cfg
         .get_extension::<ConfigExtensionPropagationContext>()
