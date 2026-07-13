@@ -262,7 +262,7 @@ impl TestPlanBuilder {
         }
 
         let mut config = SessionConfig::new();
-        config.set_extension(Arc::new(d_cfg));
+        config.set_distributed_option_extension(d_cfg);
         if let Some(n) = self.target_partitions {
             config = config.with_target_partitions(n);
         }

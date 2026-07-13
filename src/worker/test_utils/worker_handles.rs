@@ -1,3 +1,4 @@
+use crate::config_extension_ext::set_distributed_option_extension;
 use crate::grpc::BoxCloneSyncChannel;
 use crate::worker::task_data::TaskDataMetrics;
 use crate::{DistributedConfig, DistributedExt, TaskData, TaskKey, Worker};
@@ -185,7 +186,7 @@ fn benchmark_task_ctx(
     compression: Option<CompressionType>,
 ) -> Arc<datafusion::execution::TaskContext> {
     let mut cfg = datafusion::prelude::SessionConfig::default();
-    cfg.set_extension(Arc::new(DistributedConfig::default()));
+    set_distributed_option_extension(&mut cfg, DistributedConfig::default());
     SessionStateBuilder::new()
         .with_config(cfg)
         .with_default_features()

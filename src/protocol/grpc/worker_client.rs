@@ -75,10 +75,7 @@ impl WorkerChannel for pb::worker_service_client::WorkerServiceClient<BoxCloneSy
         metrics: ExecutionPlanMetricsSet,
         ctx: &Arc<TaskContext>,
     ) -> Result<Vec<BoxStream<'static, Result<RecordBatch>>>> {
-        let d_cfg = ctx
-            .session_config()
-            .get_extension::<DistributedConfig>()
-            .expect("DistributedConfig should be set");
+        let d_cfg = DistributedConfig::from_session_config(ctx.session_config())?;
         let buffer_budget_bytes = d_cfg.worker_connection_buffer_budget_bytes;
 
         // We are retaining record batches in memory until they are consumed, so we need to account

@@ -209,10 +209,7 @@ impl ExecutionPlan for DistributedExec {
             //    channel is closed.
             let guard = query_coordinator.end_query_guard();
 
-            let d_cfg = context
-                .session_config()
-                .get_extension::<DistributedConfig>()
-                .expect("DistributedConfig should be set");
+            let d_cfg = DistributedConfig::from_config_options(context.session_config().options())?;
             let result = match d_cfg.dynamic_task_count {
                 true => prepare_dynamic_plan(&query_coordinator, &base_plan).await?,
                 false => prepare_static_plan(&query_coordinator, &base_plan)?,

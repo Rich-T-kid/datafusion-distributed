@@ -645,12 +645,8 @@ impl DistributedExt for SessionConfig {
         &mut self,
         bytes_per_partition: usize,
     ) -> Result<(), DataFusionError> {
-        let mut d_cfg = self
-            .get_extension::<DistributedConfig>()
-            .map(|a| a.as_ref().clone())
-            .unwrap_or_default();
+        let d_cfg = DistributedConfig::from_config_options_mut(self.options_mut())?;
         d_cfg.file_scan_config_bytes_per_partition = bytes_per_partition;
-        self.set_extension(Arc::new(d_cfg));
         Ok(())
     }
 
@@ -658,22 +654,14 @@ impl DistributedExt for SessionConfig {
         &mut self,
         factor: f64,
     ) -> Result<(), DataFusionError> {
-        let mut d_cfg = self
-            .get_extension::<DistributedConfig>()
-            .map(|a| a.as_ref().clone())
-            .unwrap_or_default();
+        let d_cfg = DistributedConfig::from_config_options_mut(self.options_mut())?;
         d_cfg.cardinality_task_count_factor = factor;
-        self.set_extension(Arc::new(d_cfg));
         Ok(())
     }
 
     fn set_distributed_metrics_collection(&mut self, enabled: bool) -> Result<(), DataFusionError> {
-        let mut d_cfg = self
-            .get_extension::<DistributedConfig>()
-            .map(|a| a.as_ref().clone())
-            .unwrap_or_default();
+        let d_cfg = DistributedConfig::from_config_options_mut(self.options_mut())?;
         d_cfg.collect_metrics = enabled;
-        self.set_extension(Arc::new(d_cfg));
         Ok(())
     }
 
@@ -681,22 +669,14 @@ impl DistributedExt for SessionConfig {
         &mut self,
         enabled: bool,
     ) -> Result<(), DataFusionError> {
-        let mut d_cfg = self
-            .get_extension::<DistributedConfig>()
-            .map(|a| a.as_ref().clone())
-            .unwrap_or_default();
+        let d_cfg = DistributedConfig::from_config_options_mut(self.options_mut())?;
         d_cfg.children_isolator_unions = enabled;
-        self.set_extension(Arc::new(d_cfg));
         Ok(())
     }
 
     fn set_distributed_broadcast_joins(&mut self, enabled: bool) -> Result<(), DataFusionError> {
-        let mut d_cfg = self
-            .get_extension::<DistributedConfig>()
-            .map(|a| a.as_ref().clone())
-            .unwrap_or_default();
+        let d_cfg = DistributedConfig::from_config_options_mut(self.options_mut())?;
         d_cfg.broadcast_joins = enabled;
-        self.set_extension(Arc::new(d_cfg));
         Ok(())
     }
 
@@ -705,16 +685,12 @@ impl DistributedExt for SessionConfig {
         &mut self,
         compression: Option<arrow_ipc::CompressionType>,
     ) -> Result<(), DataFusionError> {
-        let mut d_cfg = self
-            .get_extension::<DistributedConfig>()
-            .map(|a| a.as_ref().clone())
-            .unwrap_or_default();
+        let d_cfg = DistributedConfig::from_config_options_mut(self.options_mut())?;
         d_cfg.compression = match compression {
             Some(arrow_ipc::CompressionType::ZSTD) => "zstd".to_string(),
             Some(arrow_ipc::CompressionType::LZ4_FRAME) => "lz4".to_string(),
             _ => "none".to_string(),
         };
-        self.set_extension(Arc::new(d_cfg));
         Ok(())
     }
 
@@ -722,12 +698,8 @@ impl DistributedExt for SessionConfig {
         &mut self,
         batch_size: usize,
     ) -> Result<(), DataFusionError> {
-        let mut d_cfg = self
-            .get_extension::<DistributedConfig>()
-            .map(|a| a.as_ref().clone())
-            .unwrap_or_default();
+        let d_cfg = DistributedConfig::from_config_options_mut(self.options_mut())?;
         d_cfg.shuffle_batch_size = batch_size;
-        self.set_extension(Arc::new(d_cfg));
         Ok(())
     }
 
@@ -742,22 +714,14 @@ impl DistributedExt for SessionConfig {
         &mut self,
         max_tasks_per_stage: usize,
     ) -> Result<(), DataFusionError> {
-        let mut d_cfg = self
-            .get_extension::<DistributedConfig>()
-            .map(|a| a.as_ref().clone())
-            .unwrap_or_default();
+        let d_cfg = DistributedConfig::from_config_options_mut(self.options_mut())?;
         d_cfg.max_tasks_per_stage = max_tasks_per_stage;
-        self.set_extension(Arc::new(d_cfg));
         Ok(())
     }
 
     fn set_distributed_partial_reduce(&mut self, enabled: bool) -> Result<(), DataFusionError> {
-        let mut d_cfg = self
-            .get_extension::<DistributedConfig>()
-            .map(|a| a.as_ref().clone())
-            .unwrap_or_default();
+        let d_cfg = DistributedConfig::from_config_options_mut(self.options_mut())?;
         d_cfg.partial_reduce = enabled;
-        self.set_extension(Arc::new(d_cfg));
         Ok(())
     }
 
@@ -765,12 +729,8 @@ impl DistributedExt for SessionConfig {
         &mut self,
         budget_bytes: usize,
     ) -> Result<(), DataFusionError> {
-        let mut d_cfg = self
-            .get_extension::<DistributedConfig>()
-            .map(|a| a.as_ref().clone())
-            .unwrap_or_default();
+        let d_cfg = DistributedConfig::from_config_options_mut(self.options_mut())?;
         d_cfg.worker_connection_buffer_budget_bytes = budget_bytes;
-        self.set_extension(Arc::new(d_cfg));
         Ok(())
     }
 
@@ -787,12 +747,8 @@ impl DistributedExt for SessionConfig {
     }
 
     fn set_distributed_dynamic_task_count(&mut self, enabled: bool) -> Result<(), DataFusionError> {
-        let mut d_cfg = self
-            .get_extension::<DistributedConfig>()
-            .map(|a| a.as_ref().clone())
-            .unwrap_or_default();
+        let d_cfg = DistributedConfig::from_config_options_mut(self.options_mut())?;
         d_cfg.dynamic_task_count = enabled;
-        self.set_extension(Arc::new(d_cfg));
         Ok(())
     }
 
@@ -800,12 +756,8 @@ impl DistributedExt for SessionConfig {
         &mut self,
         bytes_per_partition_per_second: usize,
     ) -> Result<(), DataFusionError> {
-        let mut d_cfg = self
-            .get_extension::<DistributedConfig>()
-            .map(|a| a.as_ref().clone())
-            .unwrap_or_default();
+        let d_cfg = DistributedConfig::from_config_options_mut(self.options_mut())?;
         d_cfg.bytes_per_partition_per_second = bytes_per_partition_per_second;
-        self.set_extension(Arc::new(d_cfg));
         Ok(())
     }
 

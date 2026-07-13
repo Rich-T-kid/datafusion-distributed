@@ -140,7 +140,7 @@ pub(super) async fn prepare_dynamic_plan(
                 })
             })
         },
-        query_coordinator.session_config(),
+        query_coordinator.session_config().options(),
     )
     .await?;
 

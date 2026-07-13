@@ -5,7 +5,7 @@
 //! the latency impact of routing file scan inputs through the work unit
 //! pipeline as compared to the regular [`FileScanConfig`] path.
 
-use crate::{TaskCountAnnotation, TaskEstimation, TaskEstimator};
+use crate::{DistributedConfig, TaskCountAnnotation, TaskEstimation, TaskEstimator};
 use crate::{WorkUnitFeed, WorkUnitFeedProto, WorkUnitFeedProvider};
 use datafusion::catalog::memory::DataSourceExec;
 use datafusion::common::tree_node::{Transformed, TreeNode};
@@ -366,10 +366,11 @@ impl TaskEstimator for WorkUnitFileScanTaskEstimator {
         plan: &Arc<dyn ExecutionPlan>,
         cfg: &ConfigOptions,
     ) -> Option<TaskEstimation> {
-        const BYTES_PER_PARTITION: usize = 16 * 1024 * 1024;
-
         let dse = plan.downcast_ref::<DataSourceExec>()?;
         let wfs = dse.data_source().downcast_ref::<WorkUnitFileScanConfig>()?;
+
+        // Same as FileScanConfigTaskEstimator.task_estimation.
+        let d_cfg = cfg.extensions.get::<DistributedConfig>()?;
 
         let mut total_bytes = 0;
         for file_group in &wfs.feed.inner()?.file_groups {
@@ -379,7 +380,7 @@ impl TaskEstimator for WorkUnitFileScanTaskEstimator {
         }
 
         let task_count = total_bytes
-            .div_ceil(BYTES_PER_PARTITION)
+            .div_ceil(d_cfg.file_scan_config_bytes_per_partition)
             .div_ceil(cfg.execution.target_partitions);
 
         Some(TaskEstimation {

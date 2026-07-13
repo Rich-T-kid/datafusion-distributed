@@ -1,12 +1,12 @@
 use crate::common::TreeNodeExt;
-use crate::config_extension_ext::set_distributed_config_from_headers;
 use crate::execution_plans::SamplerExec;
 use crate::work_unit_feed::{RemoteWorkUnitFeedRegistry, set_work_unit_received_time};
 use crate::worker::LocalWorkerContext;
 use crate::worker::task_data::TaskDataMetrics;
 use crate::{
-    CoordinatorToWorkerMsg, DistributedCodec, DistributedConfig, DistributedTaskContext, TaskData,
-    TaskMetrics, Worker, WorkerQueryContext, WorkerToCoordinatorMsg,
+    CoordinatorToWorkerMsg, DistributedCodec, DistributedConfig, DistributedExt,
+    DistributedTaskContext, TaskData, TaskMetrics, Worker, WorkerQueryContext,
+    WorkerToCoordinatorMsg,
 };
 use datafusion::common::tree_node::TreeNodeRecursion;
 use datafusion::common::{DataFusionError, Result, exec_datafusion_err, internal_err};
@@ -62,12 +62,10 @@ impl Worker {
                 .with_extension(Arc::new(LocalWorkerContext {
                     task_data_entries: Arc::clone(&self.task_data_entries),
                     self_url: request.target_worker_url,
-                }));
-            set_distributed_config_from_headers(&mut cfg, &headers)?;
+                }))
+                .with_distributed_option_extension_from_headers::<DistributedConfig>(&headers)?;
 
-            let d_cfg = cfg
-                .get_extension::<DistributedConfig>()
-                .expect("DistributedConfig should be set after header deserialization");
+            let d_cfg = DistributedConfig::from_config_options(cfg.options())?;
             let shuffle_batch_size = d_cfg.shuffle_batch_size;
             let collect_metrics = d_cfg.collect_metrics;
             if shuffle_batch_size != 0 {

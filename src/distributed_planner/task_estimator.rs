@@ -1,4 +1,5 @@
 use crate::DistributedConfig;
+use crate::config_extension_ext::set_distributed_option_extension;
 use crate::execution_plans::DistributedLeafExec;
 use TaskCountAnnotation::*;
 use datafusion::catalog::memory::DataSourceExec;
@@ -205,15 +206,23 @@ pub(crate) fn set_distributed_task_estimator(
     cfg: &mut SessionConfig,
     estimator: impl TaskEstimator + Send + Sync + 'static,
 ) {
-    let mut distributed_cfg = cfg
-        .get_extension::<DistributedConfig>()
-        .map(|arc| arc.as_ref().clone())
-        .unwrap_or_default();
-    distributed_cfg
-        .__private_task_estimator
-        .user_provided
-        .push(Arc::new(estimator));
-    cfg.set_extension(Arc::new(distributed_cfg));
+    let opts = cfg.options_mut();
+    if let Some(distributed_cfg) = opts.extensions.get_mut::<DistributedConfig>() {
+        distributed_cfg
+            .__private_task_estimator
+            .user_provided
+            .push(Arc::new(estimator));
+    } else {
+        let mut estimators = CombinedTaskEstimator::default();
+        estimators.user_provided.push(Arc::new(estimator));
+        set_distributed_option_extension(
+            cfg,
+            DistributedConfig {
+                __private_task_estimator: estimators,
+                ..Default::default()
+            },
+        )
+    }
 }
 
 /// [TaskEstimator] implementation that acts on [DataSourceExec] nodes that contain
@@ -223,15 +232,16 @@ pub(crate) fn set_distributed_task_estimator(
 #[derive(Debug)]
 pub(crate) struct FileScanConfigTaskEstimator;
 
-impl FileScanConfigTaskEstimator {
-    pub(crate) fn estimate_with_session(
+impl TaskEstimator for FileScanConfigTaskEstimator {
+    fn task_estimation(
+        &self,
         plan: &Arc<dyn ExecutionPlan>,
-        session_config: &SessionConfig,
+        cfg: &ConfigOptions,
     ) -> Option<TaskEstimation> {
         let dse: &DataSourceExec = plan.downcast_ref()?;
         let file_scan: &FileScanConfig = dse.data_source().downcast_ref()?;
-        let d_cfg = session_config.get_extension::<DistributedConfig>()?;
-        let cfg = session_config.options();
+
+        let d_cfg = cfg.extensions.get::<DistributedConfig>()?;
 
         let mut total_bytes = 0;
         for file_group in &file_scan.file_groups {
@@ -239,23 +249,12 @@ impl FileScanConfigTaskEstimator {
                 total_bytes += file.effective_size() as usize
             }
         }
+
         let task_count = total_bytes
             .div_ceil(d_cfg.file_scan_config_bytes_per_partition)
             .div_ceil(cfg.execution.target_partitions);
-        Some(TaskEstimation::desired(task_count))
-    }
-}
 
-impl TaskEstimator for FileScanConfigTaskEstimator {
-    fn task_estimation(
-        &self,
-        plan: &Arc<dyn ExecutionPlan>,
-        cfg: &ConfigOptions,
-    ) -> Option<TaskEstimation> {
-        // This public-trait path is kept for user-defined TaskEstimator impls that
-        // are tested in isolation. Internal callers use estimate_with_session instead.
-        let _ = (plan, cfg);
-        None
+        Some(TaskEstimation::desired(task_count))
     }
 
     fn scale_up_leaf_node(
@@ -332,33 +331,6 @@ pub(crate) struct CombinedTaskEstimator {
     pub(crate) user_provided: Vec<Arc<dyn TaskEstimator + Send + Sync>>,
 }
 
-impl std::fmt::Debug for CombinedTaskEstimator {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "CombinedTaskEstimator")
-    }
-}
-
-impl CombinedTaskEstimator {
-    /// Internal estimation that reads [DistributedConfig] from `session_config.extensions`
-    /// so the built-in [FileScanConfigTaskEstimator] works correctly.
-    pub(crate) fn task_estimation_with_session(
-        &self,
-        plan: &Arc<dyn ExecutionPlan>,
-        session_config: &SessionConfig,
-    ) -> Option<TaskEstimation> {
-        let cfg = session_config.options();
-        for estimator in &self.user_provided {
-            if let Some(result) = estimator.task_estimation(plan, cfg) {
-                return Some(result);
-            }
-        }
-        // We want to execute the default estimators last so that the user-provided ones have
-        // a chance of providing an estimation.
-        // If none of the user-provided returned an estimation, the default ones are used.
-        FileScanConfigTaskEstimator::estimate_with_session(plan, session_config)
-    }
-}
-
 impl TaskEstimator for CombinedTaskEstimator {
     fn task_estimation(
         &self,
@@ -367,6 +339,14 @@ impl TaskEstimator for CombinedTaskEstimator {
     ) -> Option<TaskEstimation> {
         for estimator in &self.user_provided {
             if let Some(result) = estimator.task_estimation(plan, cfg) {
+                return Some(result);
+            }
+        }
+        // We want to execute the default estimators last so that the user-provided ones have
+        // a chance of providing an estimation.
+        // If none of the user-provided returned an estimation, the default ones are used.
+        for default_estimator in [&FileScanConfigTaskEstimator as &dyn TaskEstimator] {
+            if let Some(result) = default_estimator.task_estimation(plan, cfg) {
                 return Some(result);
             }
         }
@@ -493,6 +473,10 @@ mod tests {
             node: Arc<dyn ExecutionPlan>,
             f: impl FnOnce(DistributedConfig) -> DistributedConfig,
         ) -> usize {
+            let mut cfg = ConfigOptions::default();
+            // Pin target_partitions so the byte-based estimation is deterministic regardless of
+            // the host's core count.
+            cfg.execution.target_partitions = 1;
             let d_cfg = DistributedConfig {
                 file_scan_config_bytes_per_partition: 1,
                 __private_worker_resolver: WorkerResolverExtension(Arc::new(
@@ -500,11 +484,8 @@ mod tests {
                 )),
                 ..Default::default()
             };
-            // Pin target_partitions so the byte-based estimation is deterministic regardless of
-            // the host's core count.
-            let mut session_config = SessionConfig::new().with_target_partitions(1);
-            session_config.set_extension(Arc::new(f(d_cfg)));
-            self.task_estimation_with_session(&node, &session_config)
+            cfg.extensions.insert(f(d_cfg));
+            self.task_estimation(&node, &cfg)
                 .unwrap()
                 .task_count
                 .as_usize()

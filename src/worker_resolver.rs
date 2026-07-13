@@ -1,5 +1,6 @@
 use crate::DistributedConfig;
-use datafusion::common::{DataFusionError, not_impl_err};
+use crate::config_extension_ext::set_distributed_option_extension;
+use datafusion::common::{DataFusionError, exec_err, not_impl_err};
 use datafusion::prelude::SessionConfig;
 use std::any::Any;
 use std::sync::Arc;
@@ -24,34 +25,33 @@ pub(crate) fn set_distributed_worker_resolver(
     cfg: &mut SessionConfig,
     worker_resolver: impl WorkerResolver + 'static,
 ) {
+    let opts = cfg.options_mut();
     let worker_resolver = WorkerResolverExtension(Arc::new(worker_resolver));
-    let mut distributed_cfg = cfg
-        .get_extension::<DistributedConfig>()
-        .map(|arc| arc.as_ref().clone())
-        .unwrap_or_default();
-    distributed_cfg.__private_worker_resolver = worker_resolver;
-    cfg.set_extension(Arc::new(distributed_cfg));
+    if let Some(distributed_cfg) = opts.extensions.get_mut::<DistributedConfig>() {
+        distributed_cfg.__private_worker_resolver = worker_resolver;
+    } else {
+        set_distributed_option_extension(
+            cfg,
+            DistributedConfig {
+                __private_worker_resolver: worker_resolver,
+                ..Default::default()
+            },
+        )
+    }
 }
 
 pub fn get_distributed_worker_resolver(
     cfg: &SessionConfig,
 ) -> Result<Arc<dyn WorkerResolver>, DataFusionError> {
-    let distributed_cfg = cfg.get_extension::<DistributedConfig>().ok_or_else(|| {
-        DataFusionError::Execution(
-            "DistributedConfig not present in the session config".to_string(),
-        )
-    })?;
+    let opts = cfg.options();
+    let Some(distributed_cfg) = opts.extensions.get::<DistributedConfig>() else {
+        return exec_err!("WorkerResolver not present in the session config");
+    };
     Ok(Arc::clone(&distributed_cfg.__private_worker_resolver.0))
 }
 
 #[derive(Clone)]
 pub(crate) struct WorkerResolverExtension(pub(crate) Arc<dyn WorkerResolver + 'static>);
-
-impl std::fmt::Debug for WorkerResolverExtension {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WorkerResolverExtension")
-    }
-}
 
 impl WorkerResolverExtension {
     pub(crate) fn not_implemented() -> Self {

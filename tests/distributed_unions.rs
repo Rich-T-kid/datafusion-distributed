@@ -6,17 +6,14 @@ mod tests {
     use datafusion::prelude::SessionContext;
     use datafusion_distributed::test_utils::localhost::start_localhost_context;
     use datafusion_distributed::test_utils::parquet::register_parquet_tables;
-    use datafusion_distributed::{
-        DefaultSessionBuilder, DistributedExt, assert_snapshot, display_plan_ascii,
-    };
+    use datafusion_distributed::{DefaultSessionBuilder, assert_snapshot, display_plan_ascii};
     use futures::TryStreamExt;
     use std::error::Error;
     use std::sync::Arc;
 
     #[tokio::test]
     async fn more_tasks_than_children() -> Result<(), Box<dyn Error>> {
-        let (mut ctx_distributed, _guard, _) =
-            start_localhost_context(3, DefaultSessionBuilder).await;
+        let (ctx_distributed, _guard, _) = start_localhost_context(3, DefaultSessionBuilder).await;
 
         let query = r#"
         SELECT "MinTemp", "RainToday" FROM weather WHERE "MinTemp" > 10.0
@@ -32,7 +29,9 @@ mod tests {
         let physical = df.create_physical_plan().await?;
 
         register_parquet_tables(&ctx_distributed).await?;
-        ctx_distributed.set_distributed_children_isolator_unions(true)?;
+        ctx_distributed
+            .sql("SET distributed.children_isolator_unions=true;")
+            .await?;
         let df_distributed = ctx_distributed.sql(query).await?;
         let physical_distributed = df_distributed.create_physical_plan().await?;
         let physical_distributed_str = display_plan_ascii(physical_distributed.as_ref(), false);
@@ -64,8 +63,7 @@ mod tests {
 
     #[tokio::test]
     async fn same_children_than_tasks() -> Result<(), Box<dyn Error>> {
-        let (mut ctx_distributed, _guard, _) =
-            start_localhost_context(3, DefaultSessionBuilder).await;
+        let (ctx_distributed, _guard, _) = start_localhost_context(3, DefaultSessionBuilder).await;
 
         let query = r#"
         SELECT "MinTemp", "RainToday" FROM weather WHERE "MinTemp" > 20.0
@@ -83,7 +81,9 @@ mod tests {
         let physical = df.create_physical_plan().await?;
 
         register_parquet_tables(&ctx_distributed).await?;
-        ctx_distributed.set_distributed_children_isolator_unions(true)?;
+        ctx_distributed
+            .sql("SET distributed.children_isolator_unions=true;")
+            .await?;
         let df_distributed = ctx_distributed.sql(query).await?;
         let physical_distributed = df_distributed.create_physical_plan().await?;
         let physical_distributed_str = display_plan_ascii(physical_distributed.as_ref(), false);
@@ -119,8 +119,7 @@ mod tests {
 
     #[tokio::test]
     async fn more_children_than_tasks() -> Result<(), Box<dyn Error>> {
-        let (mut ctx_distributed, _guard, _) =
-            start_localhost_context(3, DefaultSessionBuilder).await;
+        let (ctx_distributed, _guard, _) = start_localhost_context(3, DefaultSessionBuilder).await;
 
         let query = r#"
         SELECT "MinTemp", "RainToday" FROM weather WHERE "MinTemp" > 10.0
@@ -142,7 +141,9 @@ mod tests {
         let physical = df.create_physical_plan().await?;
 
         register_parquet_tables(&ctx_distributed).await?;
-        ctx_distributed.set_distributed_children_isolator_unions(true)?;
+        ctx_distributed
+            .sql("SET distributed.children_isolator_unions=true;")
+            .await?;
         let df_distributed = ctx_distributed.sql(query).await?;
         let physical_distributed = df_distributed.create_physical_plan().await?;
         let physical_distributed_str = display_plan_ascii(physical_distributed.as_ref(), false);
@@ -188,8 +189,7 @@ mod tests {
 
     #[tokio::test]
     async fn nested_unions() -> Result<(), Box<dyn Error>> {
-        let (mut ctx_distributed, _guard, _) =
-            start_localhost_context(3, DefaultSessionBuilder).await;
+        let (ctx_distributed, _guard, _) = start_localhost_context(3, DefaultSessionBuilder).await;
 
         // The LIMIT on the inner subqueries prevents the logical optimizer from
         // flattening the nested `UNION ALL`s into a single `Union`, so the resulting
@@ -218,7 +218,9 @@ mod tests {
         let physical = df.create_physical_plan().await?;
 
         register_parquet_tables(&ctx_distributed).await?;
-        ctx_distributed.set_distributed_children_isolator_unions(true)?;
+        ctx_distributed
+            .sql("SET distributed.children_isolator_unions=true;")
+            .await?;
         let df_distributed = ctx_distributed.sql(query).await?;
         let physical_distributed = df_distributed.create_physical_plan().await?;
         let physical_distributed_str = display_plan_ascii(physical_distributed.as_ref(), false);

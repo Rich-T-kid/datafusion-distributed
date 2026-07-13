@@ -1,3 +1,4 @@
+use crate::config_extension_ext::set_distributed_option_extension;
 #[cfg(feature = "grpc")]
 use crate::protocol::grpc;
 use crate::{DistributedConfig, WorkerChannel};
@@ -43,21 +44,26 @@ pub(crate) fn set_distributed_channel_resolver(
     cfg: &mut SessionConfig,
     channel_resolver: impl ChannelResolver + Send + Sync + 'static,
 ) {
+    let opts = cfg.options_mut();
     let channel_resolver = ChannelResolverExtension(Some(Arc::new(channel_resolver)));
-    let mut distributed_cfg = cfg
-        .get_extension::<DistributedConfig>()
-        .map(|arc| arc.as_ref().clone())
-        .unwrap_or_default();
-    distributed_cfg.__private_channel_resolver = channel_resolver;
-    cfg.set_extension(Arc::new(distributed_cfg));
+    if let Some(distributed_cfg) = opts.extensions.get_mut::<DistributedConfig>() {
+        distributed_cfg.__private_channel_resolver = channel_resolver;
+    } else {
+        set_distributed_option_extension(
+            cfg,
+            DistributedConfig {
+                __private_channel_resolver: channel_resolver,
+                ..Default::default()
+            },
+        )
+    }
 }
 
 pub fn get_distributed_channel_resolver(
     task_ctx: &TaskContext,
 ) -> Arc<dyn ChannelResolver + Send + Sync> {
-    if let Some(distributed_cfg) = task_ctx
-        .session_config()
-        .get_extension::<DistributedConfig>()
+    let opts = task_ctx.session_config().options();
+    if let Some(distributed_cfg) = opts.extensions.get::<DistributedConfig>()
         && let Some(cr) = &distributed_cfg.__private_channel_resolver.0
     {
         return Arc::clone(cr);
@@ -90,12 +96,4 @@ impl ChannelResolver for Arc<dyn ChannelResolver + Send + Sync> {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct ChannelResolverExtension(
-    pub(crate) Option<Arc<dyn ChannelResolver + Send + Sync>>,
-);
-
-impl std::fmt::Debug for ChannelResolverExtension {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ChannelResolverExtension")
-    }
-}
+pub(crate) struct ChannelResolverExtension(Option<Arc<dyn ChannelResolver + Send + Sync>>);

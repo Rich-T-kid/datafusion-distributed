@@ -71,10 +71,7 @@ impl QueryPlanner for DistributedQueryPlanner {
         }
 
         let cfg = session_state.config_options().as_ref();
-        let d_cfg = session_state
-            .config()
-            .get_extension::<DistributedConfig>()
-            .expect("DistributedConfig should be set");
+        let d_cfg = DistributedConfig::from_config_options(cfg)?;
 
         // The plan already contains network boundaries set by the user. Just ensure they have nice
         // unique identifiers for each stage, and move forward with it.
@@ -107,9 +104,9 @@ impl QueryPlanner for DistributedQueryPlanner {
             plan = Arc::new(CoalescePartitionsExec::new(plan));
         }
 
-        let session_config = session_state.config();
+        let cfg = session_state.config_options();
 
-        plan = insert_broadcast_execs(plan, session_config)?;
+        plan = insert_broadcast_execs(plan, cfg)?;
 
         if d_cfg.dynamic_task_count {
             // The task count will be decided dynamically at execution time.
@@ -119,16 +116,14 @@ impl QueryPlanner for DistributedQueryPlanner {
         }
 
         // Compute per-node task counts and inject `Network*Exec` nodes at the stage boundaries.
-        plan =
-            inject_network_boundaries(plan, CardinalityBasedNetworkBoundaryBuilder, session_config)
-                .await?;
+        plan = inject_network_boundaries(plan, CardinalityBasedNetworkBoundaryBuilder, cfg).await?;
 
         plan = prepare_network_boundaries(plan)?;
         if !plan.exists(|plan| Ok(plan.is_network_boundary()))? {
             return Ok(original_plan);
         }
 
-        let plan = partial_reduce_below_network_shuffles(plan, session_config)?;
+        let plan = partial_reduce_below_network_shuffles(plan, cfg)?;
         let plan = push_fetch_into_network_coalesce(plan)?;
 
         Ok(Arc::new(
