@@ -1,5 +1,3 @@
-use crate::config_extension_ext::register_config_extension_prefix;
-use crate::config_extension_ext::set_distributed_option_extension;
 use datafusion::common::{DataFusionError, extensions_options, plan_err};
 use datafusion::config::{ConfigExtension, ConfigOptions};
 use datafusion::execution::TaskContext;
@@ -92,25 +90,11 @@ impl DistributedConfig {
         Ok(distributed_cfg)
     }
 
-    /// Gets the [DistributedConfig] from the [SessionConfig], inserting a default if not present.
-    /// Always registers the `"distributed"` propagation prefix so coordinator-side settings are
-    /// included in gRPC headers sent to workers, regardless of call ordering.
-    pub fn from_session_config_mut(cfg: &mut SessionConfig) -> Result<&mut Self, DataFusionError> {
-        if cfg
-            .options()
-            .extensions
-            .get::<DistributedConfig>()
-            .is_none()
-        {
-            set_distributed_option_extension(cfg, DistributedConfig::default());
-        } else {
-            register_config_extension_prefix(cfg, DistributedConfig::PREFIX);
-        }
-        Ok(cfg
-            .options_mut()
-            .extensions
-            .get_mut::<DistributedConfig>()
-            .unwrap())
+    pub fn from_config_options_mut(cfg: &mut ConfigOptions) -> Result<&mut Self, DataFusionError> {
+        let Some(distributed_cfg) = cfg.extensions.get_mut::<DistributedConfig>() else {
+            return plan_err!("DistributedConfig is not in ConfigOptions.extensions");
+        };
+        Ok(distributed_cfg)
     }
 
     /// Gets the [DistributedConfig] from the [ConfigOptions]'s in the provided [SessionConfig].

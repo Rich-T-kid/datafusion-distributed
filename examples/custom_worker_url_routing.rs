@@ -37,6 +37,7 @@ use datafusion::physical_plan::stream::{
 };
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
+use datafusion_distributed::get_distributed_worker_resolver;
 use datafusion_distributed::test_utils::localhost::{
     LocalHostWorkerResolver, spawn_worker_service,
 };
@@ -220,8 +221,7 @@ impl TaskEstimator for CachedFileScanConfigTaskEstimator {
 
     fn route_tasks(&self, ctx: &TaskRoutingContext<'_>) -> Result<Option<Vec<Url>>> {
         let available_urls =
-            datafusion_distributed::get_distributed_worker_resolver(ctx.task_ctx.session_config())?
-                .get_urls()?;
+            get_distributed_worker_resolver(ctx.task_ctx.session_config())?.get_urls()?;
 
         let mut routed = None;
         ctx.plan.apply(|node| {

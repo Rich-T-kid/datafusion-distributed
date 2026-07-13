@@ -21,19 +21,6 @@ pub(crate) fn set_distributed_option_extension<T: ConfigExtension + Default>(
     cfg.set_extension(Arc::new(propagation_ctx));
 }
 
-/// Registers `prefix` in [`ConfigExtensionPropagationContext`] so that headers for that
-/// extension are included in outgoing gRPC requests. Idempotent: safe to call multiple times.
-pub(crate) fn register_config_extension_prefix(cfg: &mut SessionConfig, prefix: &'static str) {
-    let mut ctx = cfg
-        .get_extension::<ConfigExtensionPropagationContext>()
-        .map(|existing| existing.as_ref().clone())
-        .unwrap_or_default();
-    if !ctx.prefixes.contains(&prefix) {
-        ctx.prefixes.push(prefix);
-        cfg.set_extension(Arc::new(ctx));
-    }
-}
-
 pub(crate) fn set_distributed_option_extension_from_headers<'a, T: ConfigExtension + Default>(
     cfg: &'a mut SessionConfig,
     headers: &HeaderMap,

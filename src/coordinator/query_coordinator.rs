@@ -378,10 +378,7 @@ impl<'a> StageCoordinator<'a> {
     pub(super) fn routed_urls(&self) -> Result<Vec<Url>> {
         let session_config = self.task_ctx.session_config();
         let worker_resolver = get_distributed_worker_resolver(session_config)?;
-        let task_estimator = session_config
-            .get_extension::<CombinedTaskEstimator>()
-            .map(|a| a.as_ref().clone())
-            .unwrap_or_default();
+        let task_estimator = CombinedTaskEstimator::from_session_config(session_config);
 
         let routed_urls = match task_estimator.route_tasks(&TaskRoutingContext {
             task_ctx: Arc::clone(self.task_ctx),

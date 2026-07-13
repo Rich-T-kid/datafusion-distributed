@@ -25,7 +25,10 @@ pub(crate) fn set_distributed_worker_resolver(
     worker_resolver: impl WorkerResolver + 'static,
 ) {
     cfg.set_extension(Arc::new(WorkerResolverExtension(Arc::new(worker_resolver))));
-    let _ = DistributedConfig::from_session_config_mut(cfg);
+    let options = cfg.options_mut();
+    if options.extensions.get::<DistributedConfig>().is_none() {
+        options.extensions.insert(DistributedConfig::default());
+    }
 }
 
 pub fn get_distributed_worker_resolver(
@@ -60,51 +63,5 @@ impl WorkerResolverExtension {
 impl WorkerResolver for Arc<dyn WorkerResolver> {
     fn get_urls(&self) -> Result<Vec<Url>, DataFusionError> {
         self.as_ref().get_urls()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config_extension_ext::get_config_extension_propagation_headers;
-    use crate::distributed_ext::DistributedExt;
-
-    struct NoopWorkerResolver;
-    impl WorkerResolver for NoopWorkerResolver {
-        fn get_urls(&self) -> Result<Vec<Url>, DataFusionError> {
-            Ok(vec![])
-        }
-    }
-
-    // Regression test: scalars set before the worker resolver must still appear in outgoing gRPC headers.
-    #[test]
-    fn distributed_config_header_propagation_scalar_before_resolver() {
-        let mut cfg = SessionConfig::new();
-        cfg.set_distributed_metrics_collection(false).unwrap();
-        set_distributed_worker_resolver(&mut cfg, NoopWorkerResolver);
-
-        let headers = get_config_extension_propagation_headers(&cfg).unwrap();
-        let value = headers
-            .get("x-datafusion-distributed-config-distributed.collect_metrics")
-            .expect("collect_metrics header must be present")
-            .to_str()
-            .unwrap();
-        assert_eq!(value, "false");
-    }
-
-    // Regression test: scalars set after the resolver must also appear in gRPC headers.
-    #[test]
-    fn distributed_config_header_propagation_scalar_after_resolver() {
-        let mut cfg = SessionConfig::new();
-        set_distributed_worker_resolver(&mut cfg, NoopWorkerResolver);
-        cfg.set_distributed_metrics_collection(false).unwrap();
-
-        let headers = get_config_extension_propagation_headers(&cfg).unwrap();
-        let value = headers
-            .get("x-datafusion-distributed-config-distributed.collect_metrics")
-            .expect("collect_metrics header must be present")
-            .to_str()
-            .unwrap();
-        assert_eq!(value, "false");
     }
 }

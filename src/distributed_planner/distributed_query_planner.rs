@@ -79,9 +79,7 @@ impl QueryPlanner for DistributedQueryPlanner {
         // unique identifiers for each stage, and move forward with it.
         if original_plan.exists(|plan| Ok(plan.is_network_boundary()))? {
             // Ensure the leafs are appropriately scaled up.
-            let task_estimator = session_cfg
-                .get_extension::<CombinedTaskEstimator>()
-                .unwrap_or_else(|| Arc::new(CombinedTaskEstimator::default()));
+            let task_estimator = CombinedTaskEstimator::from_session_config(session_cfg);
             let scaled = original_plan.transform_down_with_task_count(1, |plan, task_count| {
                 if !plan.children().is_empty() {
                     return Ok(Transformed::no(plan));
