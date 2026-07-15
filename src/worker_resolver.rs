@@ -1,4 +1,4 @@
-use crate::distributed_planner::DistributedConfig;
+use crate::DistributedConfig;
 use datafusion::common::{DataFusionError, exec_err, not_impl_err};
 use datafusion::prelude::SessionConfig;
 use std::any::Any;
