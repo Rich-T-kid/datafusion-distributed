@@ -219,9 +219,11 @@ impl TaskEstimator for CachedFileScanConfigTaskEstimator {
     }
 
     fn route_tasks(&self, ctx: &TaskRoutingContext<'_>) -> Result<Option<Vec<Url>>> {
-        let available_urls =
-            DistributedExt::get_distributed_worker_resolver(ctx.task_ctx.session_config())?
-                .get_urls()?;
+        let available_urls = ctx
+            .task_ctx
+            .session_config()
+            .get_distributed_worker_resolver()?
+            .get_urls()?;
 
         let mut routed = None;
         ctx.plan.apply(|node| {

@@ -107,6 +107,8 @@ impl DistributedConfig {
     pub fn from_task_context(ctx: &Arc<TaskContext>) -> Result<&Self, DataFusionError> {
         Self::from_session_config(ctx.session_config())
     }
+    /// Ensures that the [DistributedConfig] is present in the [SessionConfig]'s [ConfigOptions].
+    /// If not, it will insert a default [DistributedConfig] into the [SessionConfig]'s [ConfigOptions].
     pub(crate) fn ensure_in_config(cfg: &mut SessionConfig) {
         if cfg
             .options()

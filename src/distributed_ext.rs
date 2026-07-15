@@ -9,7 +9,7 @@ use crate::work_unit_feed::set_distributed_work_unit_feed;
 use crate::worker_resolver::set_distributed_worker_resolver;
 use crate::{
     ChannelResolver, DistributedConfig, TaskEstimator, WorkUnitFeed, WorkUnitFeedProvider,
-    WorkerResolver, get_distributed_worker_resolver as get_worker_resolver,
+    WorkerResolver, get_distributed_worker_resolver,
 };
 use datafusion::common::DataFusionError;
 use datafusion::config::ConfigExtension;
@@ -618,7 +618,7 @@ impl DistributedExt for SessionConfig {
     }
 
     fn get_distributed_worker_resolver(&self) -> Result<Arc<dyn WorkerResolver>, DataFusionError> {
-        get_worker_resolver(self)
+        get_distributed_worker_resolver(self)
     }
 
     fn set_distributed_user_codec<T: PhysicalExtensionCodec + 'static>(&mut self, codec: T) {
