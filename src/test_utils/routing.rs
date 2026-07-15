@@ -26,7 +26,7 @@ use crate::execution_plans::DistributedLeafExec;
 use crate::worker::LocalWorkerContext;
 use crate::{DistributedTaskContext, TaskEstimation, TaskEstimator, WorkerResolver};
 
-use crate::distributed_ext::DistributedExt;
+use crate::distributed_ext::DistributedGetterExt;
 // Table function that creates a `URLEmitterExec` for testing task routing.
 #[derive(Debug)]
 pub struct URLEmitterFunction;

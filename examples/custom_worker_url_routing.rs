@@ -41,8 +41,8 @@ use datafusion_distributed::test_utils::localhost::{
     LocalHostWorkerResolver, spawn_worker_service,
 };
 use datafusion_distributed::{
-    DistributedExt, DistributedLeafExec, SessionStateBuilderExt, TaskEstimation, TaskEstimator,
-    TaskRoutingContext, WorkerQueryContext, display_plan_ascii,
+    DistributedExt, DistributedGetterExt, DistributedLeafExec, SessionStateBuilderExt,
+    TaskEstimation, TaskEstimator, TaskRoutingContext, WorkerQueryContext, display_plan_ascii,
 };
 use datafusion_proto::physical_plan::PhysicalExtensionCodec;
 use datafusion_proto::protobuf;
