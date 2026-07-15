@@ -1,3 +1,4 @@
+use crate::config_extension_ext::set_distributed_option_extension;
 use datafusion::common::{DataFusionError, extensions_options, plan_err};
 use datafusion::config::{ConfigExtension, ConfigOptions};
 use datafusion::execution::TaskContext;
@@ -89,7 +90,7 @@ impl DistributedConfig {
         };
         Ok(distributed_cfg)
     }
-
+    /// Gets the [DistributedConfig] from the [ConfigOptions]'s extensions.
     pub fn from_config_options_mut(cfg: &mut ConfigOptions) -> Result<&mut Self, DataFusionError> {
         let Some(distributed_cfg) = cfg.extensions.get_mut::<DistributedConfig>() else {
             return plan_err!("DistributedConfig is not in ConfigOptions.extensions");
@@ -105,6 +106,16 @@ impl DistributedConfig {
     /// Gets the [DistributedConfig] from the [ConfigOptions]'s in the provided [TaskContext].
     pub fn from_task_context(ctx: &Arc<TaskContext>) -> Result<&Self, DataFusionError> {
         Self::from_session_config(ctx.session_config())
+    }
+    pub(crate) fn ensure_in_config(cfg: &mut SessionConfig) {
+        if cfg
+            .options()
+            .extensions
+            .get::<DistributedConfig>()
+            .is_none()
+        {
+            set_distributed_option_extension(cfg, DistributedConfig::default())
+        }
     }
 }
 

@@ -4,9 +4,7 @@ use super::fixture::{
 use crate::common::task_ctx_with_extension;
 use crate::stage::RemoteStage;
 use crate::worker::test_utils::worker_handles::{MemoryWorkerHandle, TcpWorkerHandle};
-use crate::{
-    DistributedConfig, DistributedExt, DistributedTaskContext, NetworkShuffleExec, Stage, grpc,
-};
+use crate::{DistributedExt, DistributedTaskContext, NetworkShuffleExec, Stage, grpc};
 use arrow::datatypes::Schema;
 use arrow_ipc::CompressionType;
 use datafusion::common::Result;
@@ -197,7 +195,6 @@ impl TransportBench {
             bench: self.clone(),
             schema,
             task_ctx: SessionStateBuilder::new()
-                .with_distributed_option_extension(DistributedConfig::default())
                 .with_distributed_channel_resolver(InMemoryChannelsResolver { channels })
                 .with_distributed_compression(self.compression)?
                 .build()
@@ -234,7 +231,6 @@ impl TransportBench {
             bench: self.clone(),
             schema,
             task_ctx: SessionStateBuilder::new()
-                .with_distributed_option_extension(DistributedConfig::default())
                 .with_distributed_channel_resolver(grpc::DefaultChannelResolver::default())
                 .with_distributed_compression(self.compression)?
                 .build()

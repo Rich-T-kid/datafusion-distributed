@@ -9,7 +9,7 @@ use crate::work_unit_feed::set_distributed_work_unit_feed;
 use crate::worker_resolver::set_distributed_worker_resolver;
 use crate::{
     ChannelResolver, DistributedConfig, TaskEstimator, WorkUnitFeed, WorkUnitFeedProvider,
-    WorkerResolver,
+    WorkerResolver, get_distributed_worker_resolver as get_worker_resolver,
 };
 use datafusion::common::DataFusionError;
 use datafusion::config::ConfigExtension;
@@ -220,6 +220,8 @@ pub trait DistributedExt: Sized {
     ///     .build();
     /// ```
     fn with_distributed_worker_resolver<T: WorkerResolver + 'static>(self, resolver: T) -> Self;
+
+    fn get_distributed_worker_resolver(&self) -> Result<Arc<dyn WorkerResolver>, DataFusionError>;
 
     /// Same as [DistributedExt::with_distributed_channel_resolver] but with an in-place mutation.
     fn set_distributed_worker_resolver<T: WorkerResolver + 'static>(&mut self, resolver: T);
@@ -615,6 +617,10 @@ impl DistributedExt for SessionConfig {
         Ok(())
     }
 
+    fn get_distributed_worker_resolver(&self) -> Result<Arc<dyn WorkerResolver>, DataFusionError> {
+        get_worker_resolver(self)
+    }
+
     fn set_distributed_user_codec<T: PhysicalExtensionCodec + 'static>(&mut self, codec: T) {
         set_distributed_user_codec(self, codec)
     }
@@ -857,6 +863,12 @@ impl DistributedExt for SessionConfig {
 }
 
 impl DistributedExt for SessionStateBuilder {
+    fn get_distributed_worker_resolver(&self) -> Result<Arc<dyn WorkerResolver>, DataFusionError> {
+        Err(DataFusionError::Execution(
+            "get_distributed_worker_resolver is not available on SessionStateBuilder; use SessionState or SessionConfig".to_string(),
+        ))
+    }
+
     delegate! {
         to self.config().get_or_insert_default() {
             fn set_distributed_option_extension<T: ConfigExtension + Default>(&mut self, t: T);
@@ -981,6 +993,12 @@ impl DistributedExt for SessionStateBuilder {
 
 impl DistributedExt for SessionState {
     delegate! {
+        to self.config() {
+            fn get_distributed_worker_resolver(&self) -> Result<Arc<dyn WorkerResolver>, DataFusionError>;
+        }
+    }
+
+    delegate! {
         to self.config_mut() {
             fn set_distributed_option_extension<T: ConfigExtension + Default>(&mut self, t: T);
             #[call(set_distributed_option_extension)]
@@ -1103,6 +1121,12 @@ impl DistributedExt for SessionState {
 }
 
 impl DistributedExt for SessionContext {
+    delegate! {
+        to self.state_ref().read().config() {
+            fn get_distributed_worker_resolver(&self) -> Result<Arc<dyn WorkerResolver>, DataFusionError>;
+        }
+    }
+
     delegate! {
         to self.state_ref().write().config_mut() {
             fn set_distributed_option_extension<T: ConfigExtension + Default>(&mut self, t: T);

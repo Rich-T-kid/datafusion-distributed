@@ -1,3 +1,4 @@
+use crate::distributed_planner::DistributedConfig;
 use crate::WorkerChannel;
 #[cfg(feature = "grpc")]
 use crate::protocol::grpc;
@@ -46,6 +47,7 @@ pub(crate) fn set_distributed_channel_resolver(
     cfg.set_extension(Arc::new(ChannelResolverExtension(Some(Arc::new(
         channel_resolver,
     )))));
+    DistributedConfig::ensure_in_config(cfg);
 }
 
 pub fn get_distributed_channel_resolver(

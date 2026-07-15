@@ -106,9 +106,9 @@ impl QueryPlanner for DistributedQueryPlanner {
             plan = Arc::new(CoalescePartitionsExec::new(plan));
         }
 
-        let session_config_opt = session_state.config_options();
+        let cfg = session_state.config_options();
 
-        plan = insert_broadcast_execs(plan, session_config_opt)?;
+        plan = insert_broadcast_execs(plan, cfg)?;
 
         if d_cfg.dynamic_task_count {
             // The task count will be decided dynamically at execution time.
@@ -126,7 +126,7 @@ impl QueryPlanner for DistributedQueryPlanner {
             return Ok(original_plan);
         }
 
-        let plan = partial_reduce_below_network_shuffles(plan, session_config_opt)?;
+        let plan = partial_reduce_below_network_shuffles(plan, cfg)?;
         let plan = push_fetch_into_network_coalesce(plan)?;
 
         Ok(Arc::new(

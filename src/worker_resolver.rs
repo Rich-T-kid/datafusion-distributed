@@ -24,11 +24,8 @@ pub(crate) fn set_distributed_worker_resolver(
     cfg: &mut SessionConfig,
     worker_resolver: impl WorkerResolver + 'static,
 ) {
+    DistributedConfig::ensure_in_config(cfg);
     cfg.set_extension(Arc::new(WorkerResolverExtension(Arc::new(worker_resolver))));
-    let options = cfg.options_mut();
-    if options.extensions.get::<DistributedConfig>().is_none() {
-        options.extensions.insert(DistributedConfig::default());
-    }
 }
 
 pub fn get_distributed_worker_resolver(
