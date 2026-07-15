@@ -602,7 +602,7 @@ pub trait DistributedExt: Sized {
     ) -> Result<(), DataFusionError>;
 }
 
-/// Trait to have a unified interface for getting structs,properties from SessionConfig that are used in distributed context.
+/// Trait to have a unified interface for getting structs & properties from SessionConfig that are used in distributed context.
 pub trait DistributedGetterExt: Sized {
     /// Gets the [WorkerResolver] from this session's config. Typically called inside
     /// [TaskEstimator::route_tasks] to resolve available worker URLs.
