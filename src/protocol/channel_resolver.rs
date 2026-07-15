@@ -1,5 +1,5 @@
-use crate::distributed_planner::DistributedConfig;
 use crate::WorkerChannel;
+use crate::distributed_planner::DistributedConfig;
 #[cfg(feature = "grpc")]
 use crate::protocol::grpc;
 use async_trait::async_trait;
