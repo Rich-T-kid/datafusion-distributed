@@ -4,12 +4,10 @@ use crate::execution_plans::{
     BroadcastExec, ChildWeight, ChildrenIsolatorUnionExec, NetworkBroadcastExec,
     NetworkCoalesceExec, SamplerExec,
 };
-use crate::execution_plans::{
-    NetworkShuffleExec, PRODUCER_SALT_DEFAULT, ShuffleMode, should_use_salted_mode,
-};
+use crate::execution_plans::{NetworkShuffleExec, PRODUCER_SALT_DEFAULT, ShuffleMode};
 use crate::stage::{LocalStage, RemoteStage, Stage};
 use crate::worker::WorkerConnectionPool;
-use crate::{DistributedConfig, DistributedTaskContext, NetworkBoundary};
+use crate::{DistributedTaskContext, NetworkBoundary};
 use bytes::Bytes;
 use datafusion::arrow::datatypes::Schema;
 use datafusion::arrow::datatypes::SchemaRef;
@@ -106,6 +104,8 @@ impl PhysicalExtensionCodec for DistributedCodec {
                 partitioning,
                 input_stage,
                 equivalence_classes,
+                salted,
+                salt,
             }) => {
                 let schema: Schema = schema
                     .as_ref()
@@ -128,20 +128,16 @@ impl PhysicalExtensionCodec for DistributedCodec {
                     proto_converter,
                 )?;
 
-                let max_mn_for_direct = DistributedConfig::from_task_context(ctx)
-                    .map(|c| c.max_mn_for_direct)
-                    .unwrap_or(75);
-                let consumer_task_count = ctx
-                    .session_config()
-                    .get_extension::<DistributedTaskContext>()
-                    .map(|dtc| dtc.task_count)
-                    .unwrap_or(1);
+                let mode = if salted {
+                    ShuffleMode::Salted { salt }
+                } else {
+                    ShuffleMode::Direct
+                };
                 Ok(Arc::new(new_network_hash_shuffle_exec(
                     partitioning,
                     equivalence_properties,
                     parse_stage_proto(input_stage, inputs)?,
-                    consumer_task_count,
-                    max_mn_for_direct,
+                    mode,
                 )))
             }
             DistributedExecNode::NetworkCoalesceTasks(NetworkCoalesceExecProto {
@@ -309,6 +305,10 @@ impl PhysicalExtensionCodec for DistributedCodec {
         }
 
         if let Some(node) = node.downcast_ref::<NetworkShuffleExec>() {
+            let (salted, salt) = match &node.mode {
+                ShuffleMode::Direct => (false, 0u64),
+                ShuffleMode::Salted { salt } => (true, *salt),
+            };
             let inner = NetworkShuffleExecProto {
                 schema: Some(node.schema().try_into()?),
                 partitioning: Some(serialize_partitioning(
@@ -322,6 +322,8 @@ impl PhysicalExtensionCodec for DistributedCodec {
                     self,
                     proto_converter,
                 )?,
+                salted,
+                salt,
             };
 
             let wrapper = DistributedExecProto {
@@ -528,6 +530,13 @@ pub struct NetworkShuffleExecProto {
     input_stage: Option<StageProto>,
     #[prost(message, repeated, tag = "4")]
     equivalence_classes: Vec<EquivalenceClassProto>,
+    /// Whether the planner chose Salted mode. Serialized so the worker uses the
+    /// same mode the planner decided on, rather than re-evaluating the threshold.
+    #[prost(bool, tag = "5")]
+    salted: bool,
+    /// Salt value used in Salted mode; ignored when `salted` is false.
+    #[prost(uint64, tag = "6")]
+    salt: u64,
 }
 
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -576,22 +585,13 @@ fn new_network_hash_shuffle_exec(
     partitioning: Partitioning,
     equivalence_properties: EquivalenceProperties,
     input_stage: Stage,
-    consumer_task_count: usize,
-    max_mn_for_direct: usize,
+    mode: ShuffleMode,
 ) -> NetworkShuffleExec {
     let producer_tasks = input_stage.task_count();
     let consumer_partitions = partitioning.partition_count();
-    let salted =
-        should_use_salted_mode(consumer_task_count, consumer_partitions, max_mn_for_direct);
-    let (mode, output_partitions) = if !salted {
-        (ShuffleMode::Direct, consumer_partitions)
-    } else {
-        (
-            ShuffleMode::Salted {
-                salt: PRODUCER_SALT_DEFAULT,
-            },
-            producer_tasks,
-        )
+    let output_partitions = match &mode {
+        ShuffleMode::Direct => consumer_partitions,
+        ShuffleMode::Salted { .. } => producer_tasks,
     };
     let advertised_partitioning = match &mode {
         ShuffleMode::Direct => partitioning.clone(),
@@ -687,8 +687,7 @@ mod tests {
     use super::super::physical_plan::new_proto_converter as default_proto_converter;
     use super::*;
 
-    const DEFAULT_MAX_MN: usize = 75;
-    const DEFAULT_CONSUMER_TASK_COUNT: usize = 1;
+    const DEFAULT_MODE: ShuffleMode = ShuffleMode::Direct;
     use datafusion::arrow::datatypes::{DataType, Field};
     use datafusion::physical_expr::{LexOrdering, PhysicalExpr};
     use datafusion::physical_plan::empty::EmptyExec;
@@ -744,8 +743,7 @@ mod tests {
             part,
             EquivalenceProperties::new(schema),
             dummy_stage(),
-            DEFAULT_CONSUMER_TASK_COUNT,
-            DEFAULT_MAX_MN,
+            DEFAULT_MODE,
         ));
 
         let mut buf = Vec::new();
@@ -767,15 +765,13 @@ mod tests {
             Partitioning::RoundRobinBatch(2),
             EquivalenceProperties::new(schema.clone()),
             dummy_stage(),
-            DEFAULT_CONSUMER_TASK_COUNT,
-            DEFAULT_MAX_MN,
+            DEFAULT_MODE,
         ));
         let right = Arc::new(new_network_hash_shuffle_exec(
             Partitioning::RoundRobinBatch(2),
             EquivalenceProperties::new(schema.clone()),
             dummy_stage(),
-            DEFAULT_CONSUMER_TASK_COUNT,
-            DEFAULT_MAX_MN,
+            DEFAULT_MODE,
         ));
 
         let union = UnionExec::try_new(vec![left.clone(), right.clone()])?;
@@ -801,8 +797,7 @@ mod tests {
             Partitioning::UnknownPartitioning(1),
             EquivalenceProperties::new(schema.clone()),
             dummy_stage(),
-            DEFAULT_CONSUMER_TASK_COUNT,
-            DEFAULT_MAX_MN,
+            DEFAULT_MODE,
         ));
 
         let sort_expr = PhysicalSortExpr {
@@ -858,8 +853,7 @@ mod tests {
             part,
             EquivalenceProperties::new(schema),
             dummy_stage_with_plan(),
-            DEFAULT_CONSUMER_TASK_COUNT,
-            DEFAULT_MAX_MN,
+            DEFAULT_MODE,
         ));
 
         let mut buf = Vec::new();
@@ -956,15 +950,13 @@ mod tests {
             Partitioning::RoundRobinBatch(2),
             EquivalenceProperties::new(schema.clone()),
             dummy_stage(),
-            DEFAULT_CONSUMER_TASK_COUNT,
-            DEFAULT_MAX_MN,
+            DEFAULT_MODE,
         )) as Arc<dyn ExecutionPlan>;
         let right = Arc::new(new_network_hash_shuffle_exec(
             Partitioning::RoundRobinBatch(2),
             EquivalenceProperties::new(schema.clone()),
             dummy_stage(),
-            DEFAULT_CONSUMER_TASK_COUNT,
-            DEFAULT_MAX_MN,
+            DEFAULT_MODE,
         )) as Arc<dyn ExecutionPlan>;
 
         let plan: Arc<dyn ExecutionPlan> =
@@ -1006,8 +998,7 @@ mod tests {
                     Partitioning::UnknownPartitioning(1),
                     equivalence_properties.clone(),
                     dummy_stage(),
-                    DEFAULT_CONSUMER_TASK_COUNT,
-                    DEFAULT_MAX_MN,
+                    DEFAULT_MODE,
                 )),
             ),
             (
